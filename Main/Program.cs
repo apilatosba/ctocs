@@ -145,17 +145,32 @@ namespace Main {
             }
          }
 
-         Dictionary<string, string> defines = new Dictionary<string, string>(); // only the ones that can be written as "const ... = ..." are added here. #define FOO 5 -> defines["FOO"] = "5"
+         Dictionary<string, Type> singleLineDefineTypes = new Dictionary<string, Type>(); // includes the type of the entry in singleLineDefines if it is written to csOutput. #define FOO 5 -> singleLineDefineTypes["FOO"] = typeof(int)
+         Dictionary<string, string> singleLineDefines = new Dictionary<string, string>(); // only the ones that can be written as "const ... = ..." are added here. #define FOO 5 -> defines["FOO"] = "5"
+         Dictionary<string, string> defines = new Dictionary<string, string>();
          {
             Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?\w+[""']?) *$", RegexOptions.Multiline);
-            Regex anyDefineRegex = new Regex(@"#define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
+            Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (string file in headerFiles.Values) {
-               MatchCollection matches = singleLineDefineRegex.Matches(file);
-               foreach (Match match in matches) {
-                  string name = match.Groups["name"].Value;
-                  string value = match.Groups["value"].Value;
-                  if (!defines.TryAdd(name, value)) {
-                     Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{defines[name]}\". you tried to set it to \"{value}\"");
+               // single line defines
+               {
+                  MatchCollection matches = singleLineDefineRegex.Matches(file);
+                  foreach (Match match in matches) {
+                     string name = match.Groups["name"].Value;
+                     string value = match.Groups["value"].Value;
+                     if (!singleLineDefines.TryAdd(name, value)) {
+                        Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
+                     }
+                  }
+               }
+
+               // any define
+               {
+                  MatchCollection matches = anyDefineRegex.Matches(file);
+                  foreach (Match match in matches) {
+                     string name = match.Groups["name"].Value;
+                     string value = match.Groups["value"].Value;
+                     defines.TryAdd(name, value);
                   }
                }
             }
@@ -269,17 +284,22 @@ namespace Main {
 
          // defines
          {
-            foreach (var kvp in defines) {
+            foreach (var kvp in singleLineDefines) {
                if (int.TryParse(kvp.Value, out int intValue)) {
                   csOutput.AppendLine($"     public const int {kvp.Key} = {intValue};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(int));
                } else if (float.TryParse(kvp.Value, out float floatValue)) {
                   csOutput.AppendLine($"     public const float {kvp.Key} = {floatValue}f;");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(float));
                } else if (double.TryParse(kvp.Value, out double doubleValue)) {
                   csOutput.AppendLine($"     public const double {kvp.Key} = {doubleValue}d;");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(double));
                } else if (kvp.Value.StartsWith('"') && kvp.Value.EndsWith('"')) {
                   csOutput.AppendLine($"     public const string {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(string));
                } else if (kvp.Value.StartsWith('\'') && kvp.Value.EndsWith('\'')) {
                   csOutput.AppendLine($"     public const char {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(char));
                } else {
                   // lets check int float double considering suffixes
                   const int MAX_SUFFIX_LENGTH = 3;
@@ -299,27 +319,55 @@ namespace Main {
                   if (suffix == "f") {
                      if (float.TryParse(suffixRemoved.ToString(), out float floatValue2)) {
                         csOutput.AppendLine($"     public const float {kvp.Key} = {floatValue2}f;");
+                        singleLineDefineTypes.Add(kvp.Key, typeof(float));
                      }
                   } else if (suffix == "ll") {
                      if (long.TryParse(suffixRemoved.ToString(), out long longValue)) {
                         csOutput.AppendLine($"     public const long {kvp.Key} = {longValue};");
+                        singleLineDefineTypes.Add(kvp.Key, typeof(long));
                      }
                   } else if (suffix == "ull" || suffix == "llu" || suffix == "ul" || suffix == "lu") {
                      if (ulong.TryParse(suffixRemoved.ToString(), out ulong ulongValue)) {
                         csOutput.AppendLine($"     public const ulong {kvp.Key} = {ulongValue};");
+                        singleLineDefineTypes.Add(kvp.Key, typeof(ulong));
                      }
                   } else if (suffix == "l") {
                      // it could be anything. if it contains a dot then lets do double otherwise do long.
                      if (suffixRemoved.ToString().Contains('.')) {
                         if (double.TryParse(suffixRemoved.ToString(), out double doubleValue2)) {
                            csOutput.AppendLine($"     public const double {kvp.Key} = {doubleValue2}d;");
+                           singleLineDefineTypes.Add(kvp.Key, typeof(double));
                         }
                      } else {
                         if (long.TryParse(suffixRemoved.ToString(), out long longValue2)) {
                            csOutput.AppendLine($"     public const long {kvp.Key} = {longValue2};");
+                           singleLineDefineTypes.Add(kvp.Key, typeof(long));
                         }
                      }
                   }
+               }
+            }
+
+            // if there are defines that are written in terms of other defines, then we can write them as well.
+            foreach (var kvp in defines) {
+               if (singleLineDefines.ContainsKey(kvp.Key)) {
+                  continue;
+               }
+
+               Regex wordRegex = new Regex(@"\w+");
+               MatchCollection words = wordRegex.Matches(kvp.Value);
+               bool anUnknownWordExists = false;
+               Type typeOfKnownWord = null;
+               foreach (Match word in words) {
+                  if (!singleLineDefines.ContainsKey(word.Value)) {
+                     anUnknownWordExists = true;
+                     break;
+                  } else {
+                     typeOfKnownWord = singleLineDefineTypes[word.Value];
+                  }
+               }
+               if (!anUnknownWordExists) {
+                  csOutput.AppendLine($"     public const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};");
                }
             }
          }
@@ -349,6 +397,10 @@ namespace Main {
 
          // structs
          foreach (StructData structData in structDatas.Values) {
+            if (structData.fields.Count == 0) {
+               continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
+            }
+
             csOutput.AppendLine($"  public unsafe partial struct {structData.name} {{");
             foreach (StructMember member in structData.fields) {
                csOutput.AppendLine($"     public {member.type} {member.name};");
