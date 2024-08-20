@@ -2,10 +2,11 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
-using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 
+// TODO: union, comments, pointer types, arrays, enums
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -149,7 +150,7 @@ namespace Main {
          Dictionary<string, string> singleLineDefines = new Dictionary<string, string>(); // only the ones that can be written as "const ... = ..." are added here. #define FOO 5 -> defines["FOO"] = "5"
          Dictionary<string, string> defines = new Dictionary<string, string>();
          {
-            Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?\w+[""']?) *$", RegexOptions.Multiline);
+            Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?[\w.]+[""']?) *$", RegexOptions.Multiline);
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (string file in headerFiles.Values) {
                // single line defines
@@ -279,7 +280,7 @@ namespace Main {
          csOutput.AppendLine($"using System.Runtime.InteropServices;");
          csOutput.AppendLine();
          csOutput.AppendLine($"namespace {libName} {{");
-         csOutput.AppendLine($"  public static unsafe partial class {libName} {{");
+         csOutput.AppendLine($"  public static unsafe partial class Native {{");
          csOutput.AppendLine($"     public const string LIBRARY_NAME = @\"{soFile}\";");
 
          // defines
@@ -372,6 +373,7 @@ namespace Main {
             }
          }
 
+         List<FunctionData> functionsInNative = new List<FunctionData>();
          // functions
          foreach (DynsymTableEntry entry in dynsymTable) {
             if (entry.type == "FUNC" &&
@@ -389,6 +391,7 @@ namespace Main {
                   }
                   csOutput.AppendLine($"      [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{entry.name}\")]");
                   csOutput.AppendLine($"      public static extern {functionData.returnType} {functionData.name}({functionArgs});");
+                  functionsInNative.Add(functionData);
                }
             }
          }
@@ -407,6 +410,42 @@ namespace Main {
             }
             csOutput.AppendLine("   }");
          }
+
+         // Safe wrapper
+         csOutput.AppendLine("   public static unsafe partial class Safe {");
+            
+         // function parameters with single star pointers
+         {
+            foreach(FunctionData functionData in functionsInNative) {
+               List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
+               List<int> indicesOfParametersToBeModified = new List<int>();
+               for (int i = 0; i < functionData.parameters.Count; i++) {
+                  FunctionParameterData parameterData = functionData.parameters[i];
+                  if (parameterData.type.Count(c => c == '*') == 1 && IsBasicType(parameterData.type.Substring(0, parameterData.type.Length - 1))) {
+                     newParameters.Add(new FunctionParameterData() {
+                        type = $"{parameterData.type.Replace("*", "[]")}",
+                        name = parameterData.name
+                     });
+                     indicesOfParametersToBeModified.Add(i);
+                  } else {
+                     newParameters.Add(parameterData);
+                  }
+               }
+
+               if (indicesOfParametersToBeModified.Count == 0) {
+                  continue;
+               }
+
+               csOutput.AppendLine($"     public static {functionData.returnType} {functionData.name}({string.Join(", ", newParameters.Select(p => $"{p.type} {p.name}"))}) {{");
+               foreach (int index in indicesOfParametersToBeModified) {
+                  FunctionParameterData parameterData = functionData.parameters[index];
+                  csOutput.AppendLine($"        fixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
+               }
+               csOutput.AppendLine($"        {(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name ))});");
+               csOutput.AppendLine("     }");
+            }
+         }
+         csOutput.AppendLine("   }");
          
          csOutput.AppendLine("}");
 
@@ -508,6 +547,15 @@ namespace Main {
             }
          }
          return count;
+      }
+
+      // this function is used for 
+      //   in Safe wrapper class if parameter is a pointer then it is converted to an array.
+      //   but only if it is a basic type. int* -> int[]
+      static bool IsBasicType(string type) {
+         return new string[] {
+            "int", "long", "short", "char", "float", "double", "byte", "bool"
+         }.Contains(type);
       }
    }
 }

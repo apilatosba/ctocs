@@ -2,6 +2,7 @@ using System.Collections.Generic;
 
 namespace Main {
    public static class TypeInfo {
+      // one to ones are not included
       public readonly static Dictionary<string /*c type*/, string /*csharp equivalent*/> basicTypes = new Dictionary<string, string>() {
          { "bool", "byte" },
          { "_Bool", "byte" },
