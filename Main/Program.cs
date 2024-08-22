@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-// TODO: union, comments, pointer types, arrays, enums, structs inside structs, anynomus structs
+// TODO: union, comments, pointer types, arrays, enums, structs inside structs, function pointers
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -208,7 +208,7 @@ namespace Main {
                      string newType = match.Groups["newType"].Value;
                      string csharpType = TypeInfo.basicTypes.TryGetValue(originalType, out string convertedType) ? convertedType : originalType;
                      if (csharpType.StartsWith("signed")) {
-                        csharpType = csharpType.Replace("signed ", "");
+                        csharpType = csharpType.Remove(0, "signed ".Length).Trim();
                      }
                      if (!typedefs.TryAdd(newType, csharpType)) {
                         // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
@@ -589,7 +589,7 @@ namespace Main {
       static void PrintHelp() {
          string help =
          """
-         Usage: ctocs sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h file>,,
+         Usage: ctocs sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h files>,,
                 ctocs [--help | -h]
 
          Examples:
