@@ -178,6 +178,9 @@ namespace Main {
             }
          }
 
+         // used for generating unique names for anonymous structs that has no variable declaration. both for anonymous structs and thier generated variables. __ANONYMOUS__<iota>, __ANONYMOUS__<surroundingStructName>_<iota>_struct
+         Iota iota = new Iota();
+
          Dictionary<string /*function name*/, FunctionData> functionDatas = new Dictionary<string, FunctionData>();
          Dictionary<string /*struct name*/, StructData> structDatas = new Dictionary<string, StructData>();
          // Values stored here is already applied basicType conversion. long int -> int
@@ -191,6 +194,7 @@ namespace Main {
             Regex greedyTypedefStructRegex = new Regex(@"typedef\s+struct(?:\s+\w+)?\s*\{(?<fields>.*)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex structMemberRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*;"); // very similar to functionArgRegex
             Regex anonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
             Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>[\w\s]+?)\s+(?<newType>\w+)\s*;");
@@ -287,20 +291,23 @@ namespace Main {
                         }
                      }
 
-                     // remove anonymous structs. this doesnt work with unions.
-                     // {
-                     //    for (; ; ) {
-                     //       MatchCollection anonymousStructMatches = anonymousStructRegex.Matches(fields);
-                     //       if (anonymousStructMatches.Count == 0) {
-                     //          break;
-                     //       }
-                     //       foreach (Match anonymousStructMatch in anonymousStructMatches) {
-                     //          string wholeAnonymousStruct = GetWholeStruct(fields, anonymousStructMatch.Index);
-                     //          string wholeAnonymousStructReplacement = wholeAnonymousStruct.TrimStart().Remove(0, "struct".Length).TrimEnd(' ', ';');
-                     //          fields = fields.Replace(wholeAnonymousStruct, wholeAnonymousStructReplacement);
-                     //       }
-                     //    }
-                     // }
+                     // anonymous structs with no variable declaration
+                     {
+                        for (; ; ) {
+                           Match anonymousStructMatchIncomplete = anonymousStructRegex.Match(fields);
+                           if (!anonymousStructMatchIncomplete.Success) {
+                              break;
+                           }
+                           string anonymousStructWholeStruct = GetWholeStruct(fields, anonymousStructMatchIncomplete.Index);
+                           Match anonymousStructMatch = greedyAnonymousStructRegex.Match(anonymousStructWholeStruct);
+                           int iotaValueOfVariable = iota.Get();
+                           string structNameOfAnonymousStruct = GetStructNameOfAnonymousStructNoVariable(structName, iotaValueOfVariable);
+                           fields = fields.Remove(anonymousStructMatchIncomplete.Index, anonymousStructWholeStruct.Length)
+                                          .Insert(anonymousStructMatchIncomplete.Index, $"{structNameOfAnonymousStruct} __ANONYMOUS__{iotaValueOfVariable};");
+
+                           frontier.Enqueue((structNameOfAnonymousStruct, anonymousStructMatch.Groups["fields"].Value));
+                        }
+                     }
 
                      List<StructMember> structMembers = new List<StructMember>();
                      MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
@@ -480,7 +487,16 @@ namespace Main {
                // fieldOffsetBuilder.Append($")]");
 
                // csOutput.AppendLine(fieldOffsetBuilder.ToString());
-               csOutput.AppendLine($"     public {member.type} {member.name};");
+
+               // extract out anonymous structs. because thats how you access them in original C code.
+               if (member.type.StartsWith("__ANONYMOUS__")) {
+                  StructData anonymousStructData = structDatas[member.type];
+                  foreach(StructMember anonymousStructMember in anonymousStructData.fields) {
+                     csOutput.AppendLine($"     public {anonymousStructMember.type} {anonymousStructMember.name};");
+                  }
+               } else {
+                  csOutput.AppendLine($"     public {member.type} {member.name};");
+               }
             }
             csOutput.AppendLine("   }");
          }
@@ -663,6 +679,14 @@ namespace Main {
 
       static string GetStructNameOfAnonymousStructVariable(string variableName, string surroundingStructName) {
          return $"{surroundingStructName}_{variableName}_struct";
+      }
+
+      /// <summary>
+      /// Used for getting a name for anonymous structs that doesnt have a variable declaration.
+      /// Starts with __ANONYMOUS__ thats how you can understand if the struct is anonymous or not.
+      /// </summary>
+      static string GetStructNameOfAnonymousStructNoVariable(string surroundingStructName, int iotaValue) {
+         return $"__ANONYMOUS__{surroundingStructName}_{iotaValue}_struct";
       }
    }
 }
