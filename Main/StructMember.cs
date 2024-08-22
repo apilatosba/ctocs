@@ -1,5 +1,5 @@
 namespace Main {
-   public class StructMember {
+   public class StructMember : IStructMember {
       public string type;
       public string name;
    }

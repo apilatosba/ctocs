@@ -198,6 +198,7 @@ namespace Main {
             Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>[\w\s]+?)\s+(?<newType>\w+)\s*;");
+            Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
             foreach (string file in preprocessedHeaderFiles.Values) {
                // typedefs
                {
@@ -309,7 +310,7 @@ namespace Main {
                         }
                      }
 
-                     List<StructMember> structMembers = new List<StructMember>();
+                     List<(IStructMember member, int matchIndex)> structMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
                      MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
                      foreach (Match structMemberMatch in structMemberMatches) {
                         string name = structMemberMatch.Groups["name"].Value;
@@ -317,15 +318,46 @@ namespace Main {
                         type = GetClearerTypeString(type);
                         type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
 
-                        structMembers.Add(new StructMember() {
+                        structMembers.Add((new StructMember() {
                            name = name,
                            type = type
-                        });
+                        }, structMemberMatch.Index));
+                     }
+                     
+                     MatchCollection structMemberArrayMatches = structMemberArrayRegex.Matches(fields);
+                     foreach (Match structMemberArrayMatch in structMemberArrayMatches) {
+                        string name = structMemberArrayMatch.Groups["name"].Value;
+                        string type = structMemberArrayMatch.Groups["type"].Value;
+                        string size = structMemberArrayMatch.Groups["size"].Value;
+                        type = GetClearerTypeString(type);
+                        type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+
+                        // make the size string a bit better. get the tokens and multiply them. int foo[5][7] -> "5][7" -> "5 * 7"
+                        {
+                           Regex wordRegex = new Regex(@"\w+?");
+                           MatchCollection wordsInSizeMatches = wordRegex.Matches(size);
+                           StringBuilder sizeBuilder = new StringBuilder();
+                           for (int i = 0; i < wordsInSizeMatches.Count; i++) {
+                              Match wordMatch = wordsInSizeMatches[i];
+                              sizeBuilder.Append(wordMatch.Value);
+                              if (i < wordsInSizeMatches.Count - 1) {
+                                 sizeBuilder.Append(" * ");
+                              }
+                           }
+                           size = sizeBuilder.ToString();
+                        }
+
+                        structMembers.Add((new StructMemberArray() {
+                           name = name,
+                           type = type,
+                           size = size
+                        }, structMemberArrayMatch.Index));
                      }
 
+                     structMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
                      structDatas.TryAdd(structName, new StructData() {
                         name = structName,
-                        fields = structMembers
+                        fields = structMembers.Select(t => t.member).ToList()
                      });
                   }
                }
@@ -469,33 +501,42 @@ namespace Main {
             // csOutput.AppendLine($"  [StructLayout(LayoutKind.Explicit)]");
             csOutput.AppendLine($"  public unsafe partial struct {structData.name} {{");
             for (int i = 0; i < structData.fields.Count; i++) {
-               StructMember member = structData.fields[i];
-               // StringBuilder fieldOffsetBuilder = new StringBuilder();
-               // fieldOffsetBuilder.Append($"     [FieldOffset(");
+               if (structData.fields[i] is StructMember) {
+                  StructMember member = structData.fields[i] as StructMember;
+                  // StringBuilder fieldOffsetBuilder = new StringBuilder();
+                  // fieldOffsetBuilder.Append($"     [FieldOffset(");
 
-               // if (i == 0) {
-               //    fieldOffsetBuilder.Append('0');
-               // }
+                  // if (i == 0) {
+                  //    fieldOffsetBuilder.Append('0');
+                  // }
 
-               // // iterate over previous fields
-               // for (int j = 0; j < i; j++) {
-               //    fieldOffsetBuilder.Append($"sizeof({structData.fields[j].type})");
-               //    if (j != i - 1) {
-               //       fieldOffsetBuilder.Append(" + ");
-               //    }
-               // }
-               // fieldOffsetBuilder.Append($")]");
+                  // // iterate over previous fields
+                  // for (int j = 0; j < i; j++) {
+                  //    fieldOffsetBuilder.Append($"sizeof({structData.fields[j].type})");
+                  //    if (j != i - 1) {
+                  //       fieldOffsetBuilder.Append(" + ");
+                  //    }
+                  // }
+                  // fieldOffsetBuilder.Append($")]");
 
-               // csOutput.AppendLine(fieldOffsetBuilder.ToString());
+                  // csOutput.AppendLine(fieldOffsetBuilder.ToString());
 
-               // extract out anonymous structs. because thats how you access them in original C code.
-               if (member.type.StartsWith("__ANONYMOUS__")) {
-                  StructData anonymousStructData = structDatas[member.type];
-                  foreach(StructMember anonymousStructMember in anonymousStructData.fields) {
-                     csOutput.AppendLine($"     public {anonymousStructMember.type} {anonymousStructMember.name};");
+                  // extract out anonymous structs. because thats how you access them in original C code.
+                  if (member.type.StartsWith("__ANONYMOUS__")) {
+                     StructData anonymousStructData = structDatas[member.type];
+                     foreach (StructMember anonymousStructMember in anonymousStructData.fields) {
+                        csOutput.AppendLine($"     public {anonymousStructMember.type} {anonymousStructMember.name};");
+                     }
+                  } else {
+                     csOutput.AppendLine($"     public {member.type} {member.name};");
                   }
-               } else {
-                  csOutput.AppendLine($"     public {member.type} {member.name};");
+               } else if (structData.fields[i] is StructMemberArray) {
+                  StructMemberArray memberArray = structData.fields[i] as StructMemberArray;
+                  if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
+                     csOutput.AppendLine($"     public fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
+                  } else {
+                     // TODO: idk what to do
+                  }
                }
             }
             csOutput.AppendLine("   }");

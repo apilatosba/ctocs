@@ -22,5 +22,21 @@ namespace Main {
          { "long long int", "long" },
          { "long double", "double" },
       };
+
+      public readonly static HashSet<string> allowedFixedSizeBufferTypes = new HashSet<string>() {
+         // Fixed size buffer type must be one of the following: bool, byte, short, int, long, char, sbyte, ushort, uint, ulong, float or double [Main]csharp(CS1663)
+         "bool",
+         "byte",
+         "short",
+         "int",
+         "long",
+         "char",
+         "sbyte",
+         "ushort",
+         "uint",
+         "ulong",
+         "float",
+         "double",
+      };
    }
 }
