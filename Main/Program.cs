@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-// TODO: union, comments, pointer types, arrays, enums
+// TODO: union, comments, pointer types, arrays, enums, structs inside structs, anynomus structs
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -150,6 +150,7 @@ namespace Main {
          Dictionary<string, string> singleLineDefines = new Dictionary<string, string>(); // only the ones that can be written as "const ... = ..." are added here. #define FOO 5 -> defines["FOO"] = "5"
          Dictionary<string, string> defines = new Dictionary<string, string>();
          {
+            // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
             Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?[\w.]+[""']?) *$", RegexOptions.Multiline);
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (string file in headerFiles.Values) {
@@ -160,7 +161,7 @@ namespace Main {
                      string name = match.Groups["name"].Value;
                      string value = match.Groups["value"].Value;
                      if (!singleLineDefines.TryAdd(name, value)) {
-                        Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
+                        // Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
                      }
                   }
                }
@@ -184,9 +185,14 @@ namespace Main {
          {
             Regex functionRegex = new Regex(@"(?<returnType>\w+\s*\**)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex functionArgRegex = new Regex(@"(?<type>\w+(?:\s+\w+)?[\s*]\s*\**)\s*(?<parameterName>\w+)"); // type ends with either star or whitespace
-            Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
-            Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+\w+)?\s*\{(?<fields>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
+            Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+\w+)?\s*\{(?<fields>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyTypedefStructRegex = new Regex(@"typedef\s+struct(?:\s+\w+)?\s*\{(?<fields>.*)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex structMemberRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*;"); // very similar to functionArgRegex
+            Regex anonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>[\w\s]+?)\s+(?<newType>\w+)\s*;");
             foreach (string file in preprocessedHeaderFiles.Values) {
                // typedefs
@@ -200,7 +206,7 @@ namespace Main {
                         csharpType = csharpType.Replace("signed ", "");
                      }
                      if (!typedefs.TryAdd(newType, csharpType)) {
-                        Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
+                        // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
                      }
                   }
                }
@@ -244,38 +250,87 @@ namespace Main {
                {
                   MatchCollection typedefStructMatches = typedefStructRegex.Matches(file);
                   MatchCollection structMatches = structRegex.Matches(file);
+                  Queue<(string name, string fields)> frontier = new Queue<(string name, string fields)>();
 
-                  foreach (MatchCollection matchCollection in new MatchCollection[] {typedefStructMatches, structMatches}) {
-                     foreach (Match match in matchCollection) {
+                  foreach (MatchCollection matchCollection in new MatchCollection[] { typedefStructMatches, structMatches }) {
+                     foreach (Match incompleteMatch in matchCollection) {
+                        string wholeStruct = GetWholeStruct(file, incompleteMatch.Index);
+                        Match match = matchCollection == typedefStructMatches ? greedyTypedefStructRegex.Match(wholeStruct) : greedyStructRegex.Match(wholeStruct);
+
                         string structName = match.Groups["name"].Value;
                         string fields = match.Groups["fields"].Value;
+                        frontier.Enqueue((structName, fields));
+                     }
+                  }
 
-                        List<StructMember> structMembers = new List<StructMember>();
-                        MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
-                        foreach (Match structMemberMatch in structMemberMatches) {
-                           string name = structMemberMatch.Groups["name"].Value;
-                           string type = structMemberMatch.Groups["type"].Value;
-                           type = GetClearerTypeString(type);
-                           type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+                  while (frontier.Count > 0) {
+                     (string structName, string fields) = frontier.Dequeue();
+                     fields = fields.Trim();
 
-                           structMembers.Add(new StructMember() {
-                              name = name,
-                              type = type
-                           });
+                     // "fields" may contain complex members. structs inside of structs or unions.
+
+                     // remove all the anonymous struct with variable declarations from the struct. and add them to frontier so the anonymous structs can be processed the same way with other structs
+                     {
+                        for (; ; ) {
+                           Match anonymousStructWithVariableDeclarationMatchIncomplete = anonymousStructWithVariableDeclarationRegex.Match(fields);
+                           if (!anonymousStructWithVariableDeclarationMatchIncomplete.Success) {
+                              break;
+                           }
+                           string anonymousStructWithVariableDeclarationWholeStruct = GetWholeStruct(fields, anonymousStructWithVariableDeclarationMatchIncomplete.Index);
+                           Match anonymousStructWithVariableDeclarationMatch = greedyAnonymousStructWithVariableDeclarationRegex.Match(anonymousStructWithVariableDeclarationWholeStruct);
+                           string variableName = anonymousStructWithVariableDeclarationMatch.Groups["variableName"].Value;
+                           string structNameOfAnonymousStructVariable = GetStructNameOfAnonymousStructVariable(variableName, structName);
+                           fields = fields.Remove(anonymousStructWithVariableDeclarationMatchIncomplete.Index, anonymousStructWithVariableDeclarationWholeStruct.Length)
+                                          .Insert(anonymousStructWithVariableDeclarationMatchIncomplete.Index, $"{structNameOfAnonymousStructVariable} {variableName};");
+
+                           frontier.Enqueue((structNameOfAnonymousStructVariable, anonymousStructWithVariableDeclarationMatch.Groups["fields"].Value));
                         }
+                     }
 
-                        structDatas.TryAdd(structName, new StructData() {
-                           name = structName,
-                           fields = structMembers
+                     // remove anonymous structs. this doesnt work with unions.
+                     // {
+                     //    for (; ; ) {
+                     //       MatchCollection anonymousStructMatches = anonymousStructRegex.Matches(fields);
+                     //       if (anonymousStructMatches.Count == 0) {
+                     //          break;
+                     //       }
+                     //       foreach (Match anonymousStructMatch in anonymousStructMatches) {
+                     //          string wholeAnonymousStruct = GetWholeStruct(fields, anonymousStructMatch.Index);
+                     //          string wholeAnonymousStructReplacement = wholeAnonymousStruct.TrimStart().Remove(0, "struct".Length).TrimEnd(' ', ';');
+                     //          fields = fields.Replace(wholeAnonymousStruct, wholeAnonymousStructReplacement);
+                     //       }
+                     //    }
+                     // }
+
+                     List<StructMember> structMembers = new List<StructMember>();
+                     MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
+                     foreach (Match structMemberMatch in structMemberMatches) {
+                        string name = structMemberMatch.Groups["name"].Value;
+                        string type = structMemberMatch.Groups["type"].Value;
+                        type = GetClearerTypeString(type);
+                        type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+
+                        structMembers.Add(new StructMember() {
+                           name = name,
+                           type = type
                         });
                      }
+
+                     structDatas.TryAdd(structName, new StructData() {
+                        name = structName,
+                        fields = structMembers
+                     });
                   }
                }
             }
          }
 
-         string libName= Regex.Match(soFile, @"(lib)?(?<name>\w+).*\.so").Groups["name"].Value;
+         string libName = Regex.Match(soFile, @".*?(lib)?(?<name>\w+).*?\.so").Groups["name"].Value;
          StringBuilder csOutput = new StringBuilder();
+         csOutput.AppendLine($"/**");
+         csOutput.AppendLine($" * This file is auto generated by ctocs");
+         csOutput.AppendLine($" * github.com/apilatosba/ctocs");
+         csOutput.AppendLine($"**/");
          csOutput.AppendLine($"using System;");
          csOutput.AppendLine($"using System.Runtime.InteropServices;");
          csOutput.AppendLine();
@@ -404,8 +459,27 @@ namespace Main {
                continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
             }
 
+            // csOutput.AppendLine($"  [StructLayout(LayoutKind.Explicit)]");
             csOutput.AppendLine($"  public unsafe partial struct {structData.name} {{");
-            foreach (StructMember member in structData.fields) {
+            for (int i = 0; i < structData.fields.Count; i++) {
+               StructMember member = structData.fields[i];
+               // StringBuilder fieldOffsetBuilder = new StringBuilder();
+               // fieldOffsetBuilder.Append($"     [FieldOffset(");
+
+               // if (i == 0) {
+               //    fieldOffsetBuilder.Append('0');
+               // }
+
+               // // iterate over previous fields
+               // for (int j = 0; j < i; j++) {
+               //    fieldOffsetBuilder.Append($"sizeof({structData.fields[j].type})");
+               //    if (j != i - 1) {
+               //       fieldOffsetBuilder.Append(" + ");
+               //    }
+               // }
+               // fieldOffsetBuilder.Append($")]");
+
+               // csOutput.AppendLine(fieldOffsetBuilder.ToString());
                csOutput.AppendLine($"     public {member.type} {member.name};");
             }
             csOutput.AppendLine("   }");
@@ -413,10 +487,10 @@ namespace Main {
 
          // Safe wrapper
          csOutput.AppendLine("   public static unsafe partial class Safe {");
-            
+
          // function parameters with single star pointers
          {
-            foreach(FunctionData functionData in functionsInNative) {
+            foreach (FunctionData functionData in functionsInNative) {
                List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
                List<int> indicesOfParametersToBeModified = new List<int>();
                for (int i = 0; i < functionData.parameters.Count; i++) {
@@ -441,12 +515,12 @@ namespace Main {
                   FunctionParameterData parameterData = functionData.parameters[index];
                   csOutput.AppendLine($"        fixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
                }
-               csOutput.AppendLine($"        {(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name ))});");
+               csOutput.AppendLine($"        {(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name))});");
                csOutput.AppendLine("     }");
             }
          }
          csOutput.AppendLine("   }");
-         
+
          csOutput.AppendLine("}");
 
          string outputDirectory = $"ctocs_{libName}";
@@ -527,7 +601,7 @@ namespace Main {
             }
             result = resultBuilder.ToString();
          }
-         
+
          return result;
       }
 
@@ -556,6 +630,39 @@ namespace Main {
          return new string[] {
             "int", "long", "short", "char", "float", "double", "byte", "bool"
          }.Contains(type);
+      }
+
+      /// <summary>
+      /// Uses curly brace count. The string returned starts from file[startIndex] and ends at the first semicolon after the last closing curly brace.
+      /// </summary>
+      static string GetWholeStruct(string file, int startIndex) {
+         bool enteredFirstBrace = false;
+         int openBraceCount = 0;
+         int i = startIndex;
+         for (; i < file.Length; i++) {
+            if (file[i] == '{') {
+               enteredFirstBrace = true;
+               openBraceCount++;
+            } else if (file[i] == '}') {
+               openBraceCount--;
+            }
+
+            if (openBraceCount == 0 && enteredFirstBrace) {
+               break;
+            }
+         }
+
+         for (; i < file.Length; i++) {
+            if (file[i] == ';') {
+               break;
+            }
+         }
+
+         return file.Substring(startIndex, i - startIndex + 1);
+      }
+
+      static string GetStructNameOfAnonymousStructVariable(string variableName, string surroundingStructName) {
+         return $"{surroundingStructName}_{variableName}_struct";
       }
    }
 }
