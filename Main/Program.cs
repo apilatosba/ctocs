@@ -6,10 +6,9 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-// TODO: comments, enums, function pointers.
+// TODO: comments, function pointers.
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
-//       enums inside of structs and unions
 //       nested types
 namespace Main {
    class Program {
@@ -194,6 +193,7 @@ namespace Main {
          // Values stored here is already applied basicType conversion. long int -> int
          Dictionary<string /*new type*/, string /*what new type defined as*/> typedefs = new Dictionary<string, string>(); // basically keys and values are swapped compared to typedef syntax. typedef int newType; -> typedefs["newType"] = "int"
          Dictionary<string /*enum name*/, EnumData> enumDatas = new Dictionary<string, EnumData>();
+         List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          {
             Regex functionRegex = new Regex(@"(?<returnType>\w+\s*\**)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex functionArgRegex = new Regex(@"(?<type>\w+(?:\s+\w+)?[\s*]\s*\**)\s*(?<parameterName>\w+)"); // type ends with either star or whitespace
@@ -220,6 +220,8 @@ namespace Main {
             Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+\w+)?\s*\{(?<members>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
             Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^]+?))?\s*,");
+            Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
+            Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             foreach (string file in preprocessedHeaderFiles.Values) {
                // typedefs
                {
@@ -239,6 +241,10 @@ namespace Main {
             }
 
             foreach (string file in preprocessedHeaderFiles.Values) {
+               Queue<(string name, string fields)> unionFrontier = new Queue<(string name, string fields)>();
+               Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
+               Queue<(string enumName, string members)> enumFrontier = new Queue<(string enumName, string members)>();
+
                // functions
                {
                   MatchCollection matches = functionRegex.Matches(file);
@@ -274,9 +280,6 @@ namespace Main {
 
                // structs and unions merged. they are merged because unions may add the structFrontier. and structs may add the unionFrontier. so i need to process them together.
                {
-                  Queue<(string name, string fields)> unionFrontier = new Queue<(string name, string fields)>();
-                  Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
-
                   // struct
                   MatchCollection typedefStructMatches = typedefStructRegex.Matches(file);
                   MatchCollection structMatches = structRegex.Matches(file);
@@ -403,6 +406,35 @@ namespace Main {
                         }
                      }
 
+                     // anonymous enums with no variable declaration
+                     {
+                        // remove it from the struct or union. this will be processed in the enum section including all scopes
+                        for (; ; ) {
+                           Match anonymousEnumMatch = anonymousEnumRegex.Match(fields);
+                           if (!anonymousEnumMatch.Success) {
+                              break;
+                           }
+                           fields = fields.Remove(anonymousEnumMatch.Index, anonymousEnumMatch.Length);
+                        }
+                     }
+
+                     // anonymous enums with variable declaration
+                     {
+                        // remove it from the struct or union. this will be processed in the enum section including all scopes
+                        for (; ; ) {
+                           Match anonymousEnumWithVariableDeclarationMatch = anonymousEnumWithVariableDeclarationRegex.Match(fields);
+                           if (!anonymousEnumWithVariableDeclarationMatch.Success) {
+                              break;
+                           }
+                           string variableName = anonymousEnumWithVariableDeclarationMatch.Groups["variableName"].Value;
+                           string enumName = GetEnumNameOfAnonymousEnumVariable(variableName, structOrUnionName);
+                           fields = fields.Remove(anonymousEnumWithVariableDeclarationMatch.Index, anonymousEnumWithVariableDeclarationMatch.Length)
+                                          .Insert(anonymousEnumWithVariableDeclarationMatch.Index, $"{enumName} {variableName};");
+
+                           enumFrontier.Enqueue((enumName, anonymousEnumWithVariableDeclarationMatch.Groups["members"].Value));
+                        }
+                     }
+
                      List<(IStructMember member, int matchIndex)> structOrUnionMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
                      MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
                      foreach (Match structMemberMatch in structMemberMatches) {
@@ -461,55 +493,108 @@ namespace Main {
 
                   foreach (MatchCollection matchCollection in new MatchCollection[] { enumMatches, typedefEnumMatches }) {
                      foreach (Match enumMatch in matchCollection) {
-                        string enumName = enumMatch.Groups["name"].Value;
-                        string membersString = enumMatch.Groups["members"].Value;
-                        membersString = membersString.Trim();
+                        // i have this whole enum check because the regex might overshoot. i think only enumRegex can overshoot but to be safe i check both.
+                        string wholeEnum = GetWholeBlockUntilFollowingSemicolon(file, enumMatch.Index);
+                        Match wholeEnumMatch = matchCollection == typedefEnumMatches ? typedefEnumRegex.Match(wholeEnum) : enumRegex.Match(wholeEnum);
+                        if (!wholeEnumMatch.Success) {
+                           continue;
+                        }
 
-                        // remove the enum name if identifiers have them as prefix
-                        for (; ; ) {
-                           MatchCollection wordMatches = wordRegex.Matches(membersString);
-                           Match firstWordMatchThatStartWithEnumName = null;
-                           foreach (Match wordMatch in wordMatches) {
-                              if (wordMatch.Value.StartsWith(enumName, true, null)) {
-                                 firstWordMatchThatStartWithEnumName = wordMatch;
-                                 break;
-                              }
-                           }
+                        string enumName = wholeEnumMatch.Groups["name"].Value;
+                        string membersString = wholeEnumMatch.Groups["members"].Value;
+                        enumFrontier.Enqueue((enumName, membersString));
+                     }
+                  }
 
-                           if (firstWordMatchThatStartWithEnumName == null) {
+                  while (enumFrontier.Count > 0) {
+                     (string enumName, string membersString) = enumFrontier.Dequeue();
+                     membersString = membersString.Trim();
+
+                     // remove the enum name if identifiers have them as prefix
+                     for (; ; ) {
+                        MatchCollection wordMatches = wordRegex.Matches(membersString);
+                        Match firstWordMatchThatStartWithEnumName = null;
+                        foreach (Match wordMatch in wordMatches) {
+                           if (wordMatch.Value.StartsWith(enumName, true, null)) {
+                              firstWordMatchThatStartWithEnumName = wordMatch;
                               break;
                            }
-
-                           if (firstWordMatchThatStartWithEnumName.Value.Length > /*!=*/ enumName.Length) {
-                              if (firstWordMatchThatStartWithEnumName.Value[enumName.Length] == '_') {
-                                 membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length + 1);
-                              } else {
-                                 membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length);
-                              }
-                           }
                         }
 
-                        List<EnumMember> enumMembers = new List<EnumMember>();
-                        MatchCollection enumMemberMatches = enumMemberRegex.Matches(membersString);
-                        foreach (Match match in enumMemberMatches) {
-                           string identifier = match.Groups["identifier"].Value;
-                           string value;
-                           if (match.Groups["value"].Success) {
-                              value = match.Groups["value"].Value;
+                        if (firstWordMatchThatStartWithEnumName == null) {
+                           break;
+                        }
+
+                        if (firstWordMatchThatStartWithEnumName.Value.Length > /*!=*/ enumName.Length) {
+                           if (firstWordMatchThatStartWithEnumName.Value[enumName.Length] == '_') {
+                              membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length + 1);
                            } else {
-                              value = null;
+                              membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length);
                            }
+                        }
+                     }
 
-                           enumMembers.Add(new EnumMember() {
-                              identifier = identifier,
-                              value = value
-                           });
+                     List<EnumMember> enumMembers = new List<EnumMember>();
+                     MatchCollection enumMemberMatches = enumMemberRegex.Matches(membersString);
+                     foreach (Match match in enumMemberMatches) {
+                        string identifier = match.Groups["identifier"].Value;
+                        string value;
+                        if (match.Groups["value"].Success) {
+                           value = match.Groups["value"].Value;
+                        } else {
+                           value = null;
                         }
 
-                        enumDatas.TryAdd(enumName, new EnumData() {
-                           name = enumName,
-                           members = enumMembers
+                        enumMembers.Add(new EnumMember() {
+                           identifier = identifier,
+                           value = value
                         });
+                     }
+
+                     enumDatas.TryAdd(enumName, new EnumData() {
+                        name = enumName,
+                        members = enumMembers
+                     });
+                  }
+
+                  // anonymous enums
+                  {
+                     MatchCollection anonymousEnumMatches = anonymousEnumRegex.Matches(file);
+                     MatchCollection anonymousEnumWithVariableDeclarationMatches = anonymousEnumWithVariableDeclarationRegex.Matches(file);
+                     foreach (MatchCollection matchCollection in new MatchCollection[] { anonymousEnumMatches, anonymousEnumWithVariableDeclarationMatches }) {
+                        foreach (Match enumMatch in matchCollection) {
+                           // i have this whole enum check because the regex might overshoot. i think only anonymousEnumRegex can overshoot but to be safe i check both.
+                           string wholeEnum = GetWholeBlockUntilFollowingSemicolon(file, enumMatch.Index);
+                           Match wholeEnumMatch = matchCollection == anonymousEnumMatches ? anonymousEnumRegex.Match(wholeEnum) : anonymousEnumWithVariableDeclarationRegex.Match(wholeEnum);
+                           if (!wholeEnumMatch.Success) {
+                              continue;
+                           }
+
+                           string membersString = wholeEnumMatch.Groups["members"].Value;
+                           membersString = membersString.Trim();
+                           List<EnumMember> enumMembers = new List<EnumMember>();
+                           MatchCollection enumMemberMatches = enumMemberRegex.Matches(membersString);
+                           foreach (Match match in enumMemberMatches) {
+                              string identifier = match.Groups["identifier"].Value;
+                              string value;
+                              if (match.Groups["value"].Success) {
+                                 value = match.Groups["value"].Value;
+                              } else {
+                                 if (enumMembers.Count == 0) {
+                                    value = "0";
+                                 } else {
+                                    value = $"{enumMembers[enumMembers.Count - 1].identifier} + 1";
+                                 }
+                              }
+
+                              enumMembers.Add(new EnumMember() {
+                                 identifier = identifier,
+                                 value = value
+                              });
+                           }
+
+                           anonymousEnums.Add(enumMembers);
+                        }
                      }
                   }
                }
@@ -617,6 +702,17 @@ namespace Main {
                }
                if (!anUnknownWordExists) {
                   csOutput.AppendLine($"     public const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};");
+               }
+            }
+         }
+
+         // anonymous enums
+         {
+            csOutput.AppendLine();
+            csOutput.AppendLine($"     // ANONYMOUS ENUMS");
+            foreach (List<EnumMember> anonymousEnum in anonymousEnums) {
+               foreach (EnumMember enumMember in anonymousEnum) {
+                  csOutput.AppendLine($"     public const int {enumMember.identifier} = {enumMember.value};");
                }
             }
          }
@@ -952,6 +1048,10 @@ namespace Main {
 
       static string GetUnionNameOfAnonymousUnionNoVariable(string surroundingStructName, int iotaValue) {
          return $"__ANONYMOUS__{surroundingStructName}_{iotaValue}_UNION";
+      }
+
+      static string GetEnumNameOfAnonymousEnumVariable(string variableName, string surroundingStructName) {
+         return $"__ANONYMOUS__{surroundingStructName}_{variableName}_ENUM";
       }
 
       /// <summary>
