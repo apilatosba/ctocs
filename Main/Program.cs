@@ -6,8 +6,11 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-// TODO: union, comments, pointer types, arrays, enums, structs inside structs, function pointers.
-//       access modifiers on generated structs that are not present in the original c library. make them private
+// TODO: comments, enums, function pointers.
+//       anonymous unions and anonymous structs access syntax.
+//       safe wrapper for pointer types
+//       enums inside of structs and unions
+//       nested types
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -201,8 +204,12 @@ namespace Main {
             Regex structMemberRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*;"); // very similar to functionArgRegex
             Regex anonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
+            Regex anonymousUnionRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs. use GetWholeStruct() function
+            Regex greedyAnonymousUnionRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
             Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
+            Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>[\w\s]+?)\s+(?<newType>\w+)\s*;");
             Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
             Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
@@ -261,11 +268,14 @@ namespace Main {
                   }
                }
 
-               // structs
+               // structs and unions merged. they are merged because unions may add the structFrontier. and structs may add the unionFrontier. so i need to process them together.
                {
+                  Queue<(string name, string fields)> unionFrontier = new Queue<(string name, string fields)>();
+                  Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
+
+                  // struct
                   MatchCollection typedefStructMatches = typedefStructRegex.Matches(file);
                   MatchCollection structMatches = structRegex.Matches(file);
-                  Queue<(string name, string fields)> frontier = new Queue<(string name, string fields)>();
 
                   foreach (MatchCollection matchCollection in new MatchCollection[] { typedefStructMatches, structMatches }) {
                      foreach (Match incompleteMatch in matchCollection) {
@@ -275,17 +285,49 @@ namespace Main {
                         string structName = match.Groups["name"].Value;
                         string fields = match.Groups["fields"].Value;
                         structsThatArePresentInOriginalCCode.Add(structName);
-                        frontier.Enqueue((structName, fields));
+                        structFrontier.Enqueue((structName, fields));
                      }
                   }
 
-                  while (frontier.Count > 0) {
-                     (string structName, string fields) = frontier.Dequeue();
+                  // union
+                  MatchCollection unionMatches = unionRegex.Matches(file);
+                  MatchCollection typedefUnionMatches = typedefUnionRegex.Matches(file);
+
+                  foreach (MatchCollection matchCollection in new MatchCollection[] { typedefUnionMatches, unionMatches }) {
+                     foreach (Match incompleteMatch in matchCollection) {
+                        string wholeUnion = GetWholeBlockUntilFollowingSemicolon(file, incompleteMatch.Index);
+                        Match match = matchCollection == typedefUnionMatches ? greedyTypedefUnionRegex.Match(wholeUnion) : greedyUnionRegex.Match(wholeUnion);
+
+                        string unionName = match.Groups["name"].Value;
+                        string fields = match.Groups["fields"].Value;
+                        unionsThatArePresentInOriginalCCode.Add(unionName);
+                        unionFrontier.Enqueue((unionName, fields));
+                     }
+                  }
+
+                  while (structFrontier.Count > 0 || unionFrontier.Count > 0) {
+                     FrontierDequeuedCurrentElementType dequeuedCurrentElementType;
+                     string structOrUnionName;
+                     string fields;
+                     {
+                        if (structFrontier.TryDequeue(out (string structName, string fields) currentStruct)) {
+                           structOrUnionName = currentStruct.structName;
+                           fields = currentStruct.fields;
+                           dequeuedCurrentElementType = FrontierDequeuedCurrentElementType.Struct;
+                        } else if (unionFrontier.TryDequeue(out (string unionName, string fields) currentUnion)) {
+                           structOrUnionName = currentUnion.unionName;
+                           fields = currentUnion.fields;
+                           dequeuedCurrentElementType = FrontierDequeuedCurrentElementType.Union;
+                        } else {
+                           throw new UnreachableException("while condition already checked if there is any element in the frontiers");
+                        }
+                     }
+
                      fields = fields.Trim();
 
                      // "fields" may contain complex members. structs inside of structs or unions.
 
-                     // remove all the anonymous struct with variable declarations from the struct. and add them to frontier so the anonymous structs can be processed the same way with other structs
+                     // remove all the anonymous struct with variable declarations from the struct or union. and add them to frontier so the anonymous structs can be processed the same way with other structs
                      {
                         for (; ; ) {
                            Match anonymousStructWithVariableDeclarationMatchIncomplete = anonymousStructWithVariableDeclarationRegex.Match(fields);
@@ -295,11 +337,11 @@ namespace Main {
                            string anonymousStructWithVariableDeclarationWholeStruct = GetWholeBlockUntilFollowingSemicolon(fields, anonymousStructWithVariableDeclarationMatchIncomplete.Index);
                            Match anonymousStructWithVariableDeclarationMatch = greedyAnonymousStructWithVariableDeclarationRegex.Match(anonymousStructWithVariableDeclarationWholeStruct);
                            string variableName = anonymousStructWithVariableDeclarationMatch.Groups["variableName"].Value;
-                           string structNameOfAnonymousStructVariable = GetStructNameOfAnonymousStructVariable(variableName, structName);
+                           string structNameOfAnonymousStructVariable = GetStructNameOfAnonymousStructVariable(variableName, structOrUnionName);
                            fields = fields.Remove(anonymousStructWithVariableDeclarationMatchIncomplete.Index, anonymousStructWithVariableDeclarationWholeStruct.Length)
                                           .Insert(anonymousStructWithVariableDeclarationMatchIncomplete.Index, $"{structNameOfAnonymousStructVariable} {variableName};");
 
-                           frontier.Enqueue((structNameOfAnonymousStructVariable, anonymousStructWithVariableDeclarationMatch.Groups["fields"].Value));
+                           structFrontier.Enqueue((structNameOfAnonymousStructVariable, anonymousStructWithVariableDeclarationMatch.Groups["fields"].Value));
                         }
                      }
 
@@ -313,15 +355,51 @@ namespace Main {
                            string anonymousStructWholeStruct = GetWholeBlockUntilFollowingSemicolon(fields, anonymousStructMatchIncomplete.Index);
                            Match anonymousStructMatch = greedyAnonymousStructRegex.Match(anonymousStructWholeStruct);
                            int iotaValueOfVariable = iota.Get();
-                           string structNameOfAnonymousStruct = GetStructNameOfAnonymousStructNoVariable(structName, iotaValueOfVariable);
+                           string structNameOfAnonymousStruct = GetStructNameOfAnonymousStructNoVariable(structOrUnionName, iotaValueOfVariable);
                            fields = fields.Remove(anonymousStructMatchIncomplete.Index, anonymousStructWholeStruct.Length)
                                           .Insert(anonymousStructMatchIncomplete.Index, $"{structNameOfAnonymousStruct} __ANONYMOUS__{iotaValueOfVariable};");
 
-                           frontier.Enqueue((structNameOfAnonymousStruct, anonymousStructMatch.Groups["fields"].Value));
+                           structFrontier.Enqueue((structNameOfAnonymousStruct, anonymousStructMatch.Groups["fields"].Value));
                         }
                      }
 
-                     List<(IStructMember member, int matchIndex)> structMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
+                     // anonymous unions no variable declaration
+                     {
+                        for (; ; ) {
+                           Match anonymousUnionMatchIncomplete = anonymousUnionRegex.Match(fields);
+                           if (!anonymousUnionMatchIncomplete.Success) {
+                              break;
+                           }
+                           string anonymousUnionWholeUnion = GetWholeBlockUntilFollowingSemicolon(fields, anonymousUnionMatchIncomplete.Index);
+                           Match anonymousUnionMatch = greedyAnonymousUnionRegex.Match(anonymousUnionWholeUnion);
+                           int iotaValueOfVariable = iota.Get();
+                           string unionNameOfAnonymousUnion = GetUnionNameOfAnonymousUnionNoVariable(structOrUnionName, iotaValueOfVariable);
+                           fields = fields.Remove(anonymousUnionMatchIncomplete.Index, anonymousUnionWholeUnion.Length)
+                                          .Insert(anonymousUnionMatchIncomplete.Index, $"{unionNameOfAnonymousUnion} __ANONYMOUS__{iotaValueOfVariable};");
+
+                           unionFrontier.Enqueue((unionNameOfAnonymousUnion, anonymousUnionMatch.Groups["fields"].Value));
+                        }
+                     }
+
+                     // anonymous unions with variable declaration
+                     {
+                        for (; ; ) {
+                           Match anonymousUnionWithVariableDeclarationMatchIncomplete = anonymousUnionWithVariableDeclarationRegex.Match(fields);
+                           if (!anonymousUnionWithVariableDeclarationMatchIncomplete.Success) {
+                              break;
+                           }
+                           string anonymousUnionWithVariableDeclarationWholeUnion = GetWholeBlockUntilFollowingSemicolon(fields, anonymousUnionWithVariableDeclarationMatchIncomplete.Index);
+                           Match anonymousUnionWithVariableDeclarationMatch = greedyAnonymousUnionWithVariableDeclarationRegex.Match(anonymousUnionWithVariableDeclarationWholeUnion);
+                           string variableName = anonymousUnionWithVariableDeclarationMatch.Groups["variableName"].Value;
+                           string unionNameOfAnonymousUnionVariable = GetUnionNameOfAnonymousUnionVariable(variableName, structOrUnionName);
+                           fields = fields.Remove(anonymousUnionWithVariableDeclarationMatchIncomplete.Index, anonymousUnionWithVariableDeclarationWholeUnion.Length)
+                                          .Insert(anonymousUnionWithVariableDeclarationMatchIncomplete.Index, $"{unionNameOfAnonymousUnionVariable} {variableName};");
+
+                           unionFrontier.Enqueue((unionNameOfAnonymousUnionVariable, anonymousUnionWithVariableDeclarationMatch.Groups["fields"].Value));
+                        }
+                     }
+
+                     List<(IStructMember member, int matchIndex)> structOrUnionMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
                      MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
                      foreach (Match structMemberMatch in structMemberMatches) {
                         string name = structMemberMatch.Groups["name"].Value;
@@ -329,14 +407,14 @@ namespace Main {
                         type = GetClearerTypeString(type);
                         type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
 
-                        structMembers.Add((new StructMember() {
+                        structOrUnionMembers.Add((new StructMember() {
                            name = name,
                            type = type
                         }, structMemberMatch.Index));
                      }
-                     
-                     MatchCollection structMemberArrayMatches = structMemberArrayRegex.Matches(fields);
-                     foreach (Match structMemberArrayMatch in structMemberArrayMatches) {
+
+                     MatchCollection structOrUnionMemberArrayMatches = structMemberArrayRegex.Matches(fields);
+                     foreach (Match structMemberArrayMatch in structOrUnionMemberArrayMatches) {
                         string name = structMemberArrayMatch.Groups["name"].Value;
                         string type = structMemberArrayMatch.Groups["type"].Value;
                         string size = structMemberArrayMatch.Groups["size"].Value;
@@ -344,83 +422,232 @@ namespace Main {
                         type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
                         size = MakeBetterSizeString(size);
 
-                        structMembers.Add((new StructMemberArray() {
+                        structOrUnionMembers.Add((new StructMemberArray() {
                            name = name,
                            type = type,
                            size = size
                         }, structMemberArrayMatch.Index));
                      }
 
-                     structMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
-                     structDatas.TryAdd(structName, new StructData() {
-                        name = structName,
-                        fields = structMembers.Select(t => t.member).ToList(),
-                        accessModifier = structsThatArePresentInOriginalCCode.Contains(structName) ? "public" : "internal"
-                     });
+                     structOrUnionMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
+                     switch (dequeuedCurrentElementType) {
+                        case FrontierDequeuedCurrentElementType.Struct: {
+                           structDatas.TryAdd(structOrUnionName, new StructData() {
+                              name = structOrUnionName,
+                              fields = structOrUnionMembers.Select(t => t.member).ToList(),
+                              accessModifier = structsThatArePresentInOriginalCCode.Contains(structOrUnionName) ? "public" : "internal"
+                           });
+                        } break;
+                        case FrontierDequeuedCurrentElementType.Union: {
+                           unionDatas.TryAdd(structOrUnionName, new StructData() {
+                              name = structOrUnionName,
+                              fields = structOrUnionMembers.Select(t => t.member).ToList(),
+                              accessModifier = unionsThatArePresentInOriginalCCode.Contains(structOrUnionName) ? "public" : "internal"
+                           });
+                        } break;
+                     }
                   }
                }
 
-               // unions
-               {
-                  MatchCollection unionMatches = unionRegex.Matches(file);
-                  MatchCollection typedefUnionMatches = typedefUnionRegex.Matches(file);
-                  Queue<(string name, string fields)> frontier = new Queue<(string name, string fields)>();
+               // // structs
+               // {
+               //    MatchCollection typedefStructMatches = typedefStructRegex.Matches(file);
+               //    MatchCollection structMatches = structRegex.Matches(file);
 
-                  foreach (MatchCollection matchCollection in new MatchCollection[] { typedefUnionMatches, unionMatches }) {
-                     foreach (Match incompleteMatch in matchCollection) {
-                        string wholeUnion = GetWholeBlockUntilFollowingSemicolon(file, incompleteMatch.Index);
-                        Match match = matchCollection == typedefUnionMatches ? greedyTypedefUnionRegex.Match(wholeUnion) : greedyUnionRegex.Match(wholeUnion);
+               //    foreach (MatchCollection matchCollection in new MatchCollection[] { typedefStructMatches, structMatches }) {
+               //       foreach (Match incompleteMatch in matchCollection) {
+               //          string wholeStruct = GetWholeBlockUntilFollowingSemicolon(file, incompleteMatch.Index);
+               //          Match match = matchCollection == typedefStructMatches ? greedyTypedefStructRegex.Match(wholeStruct) : greedyStructRegex.Match(wholeStruct);
 
-                        string unionName = match.Groups["name"].Value;
-                        string fields = match.Groups["fields"].Value;
-                        unionsThatArePresentInOriginalCCode.Add(unionName);
-                        frontier.Enqueue((unionName, fields));
-                     }
-                  }
+               //          string structName = match.Groups["name"].Value;
+               //          string fields = match.Groups["fields"].Value;
+               //          structsThatArePresentInOriginalCCode.Add(structName);
+               //          structFrontier.Enqueue((structName, fields));
+               //       }
+               //    }
 
-                  while (frontier.Count > 0) {
-                     (string unionName, string fields) = frontier.Dequeue();
-                     fields = fields.Trim();
+               //    while (structFrontier.Count > 0) {
+               //       (string structName, string fields) = structFrontier.Dequeue();
+               //       fields = fields.Trim();
 
-                     // i use structmember for unions as well. it says structmember but i couldnt find a better name. you got the idea, right?
-                     List<(IStructMember member, int matchIndex)> unionMembers = new List<(IStructMember member, int matchIndex)>();
-                     MatchCollection unionMemberMatches = structMemberRegex.Matches(fields);
-                     foreach (Match unionMemberMatch in unionMemberMatches) {
-                        string name = unionMemberMatch.Groups["name"].Value;
-                        string type = unionMemberMatch.Groups["type"].Value;
-                        type = GetClearerTypeString(type);
-                        type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+               //       // "fields" may contain complex members. structs inside of structs or unions.
 
-                        unionMembers.Add((new StructMember() {
-                           name = name,
-                           type = type
-                        }, unionMemberMatch.Index));
-                     }
+               //       // remove all the anonymous struct with variable declarations from the struct. and add them to frontier so the anonymous structs can be processed the same way with other structs
+               //       {
+               //          for (; ; ) {
+               //             Match anonymousStructWithVariableDeclarationMatchIncomplete = anonymousStructWithVariableDeclarationRegex.Match(fields);
+               //             if (!anonymousStructWithVariableDeclarationMatchIncomplete.Success) {
+               //                break;
+               //             }
+               //             string anonymousStructWithVariableDeclarationWholeStruct = GetWholeBlockUntilFollowingSemicolon(fields, anonymousStructWithVariableDeclarationMatchIncomplete.Index);
+               //             Match anonymousStructWithVariableDeclarationMatch = greedyAnonymousStructWithVariableDeclarationRegex.Match(anonymousStructWithVariableDeclarationWholeStruct);
+               //             string variableName = anonymousStructWithVariableDeclarationMatch.Groups["variableName"].Value;
+               //             string structNameOfAnonymousStructVariable = GetStructNameOfAnonymousStructVariable(variableName, structName);
+               //             fields = fields.Remove(anonymousStructWithVariableDeclarationMatchIncomplete.Index, anonymousStructWithVariableDeclarationWholeStruct.Length)
+               //                            .Insert(anonymousStructWithVariableDeclarationMatchIncomplete.Index, $"{structNameOfAnonymousStructVariable} {variableName};");
 
-                     MatchCollection unionMemberArrayMatches = structMemberArrayRegex.Matches(fields);
-                     foreach (Match unionMemberArrayMatch in unionMemberArrayMatches) {
-                        string name = unionMemberArrayMatch.Groups["name"].Value;
-                        string type = unionMemberArrayMatch.Groups["type"].Value;
-                        string size = unionMemberArrayMatch.Groups["size"].Value;
-                        type = GetClearerTypeString(type);
-                        type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
-                        size = MakeBetterSizeString(size);
+               //             structFrontier.Enqueue((structNameOfAnonymousStructVariable, anonymousStructWithVariableDeclarationMatch.Groups["fields"].Value));
+               //          }
+               //       }
 
-                        unionMembers.Add((new StructMemberArray() {
-                           name = name,
-                           type = type,
-                           size = size
-                        }, unionMemberArrayMatch.Index));
-                     }
+               //       // anonymous structs with no variable declaration
+               //       {
+               //          for (; ; ) {
+               //             Match anonymousStructMatchIncomplete = anonymousStructRegex.Match(fields);
+               //             if (!anonymousStructMatchIncomplete.Success) {
+               //                break;
+               //             }
+               //             string anonymousStructWholeStruct = GetWholeBlockUntilFollowingSemicolon(fields, anonymousStructMatchIncomplete.Index);
+               //             Match anonymousStructMatch = greedyAnonymousStructRegex.Match(anonymousStructWholeStruct);
+               //             int iotaValueOfVariable = iota.Get();
+               //             string structNameOfAnonymousStruct = GetStructNameOfAnonymousStructNoVariable(structName, iotaValueOfVariable);
+               //             fields = fields.Remove(anonymousStructMatchIncomplete.Index, anonymousStructWholeStruct.Length)
+               //                            .Insert(anonymousStructMatchIncomplete.Index, $"{structNameOfAnonymousStruct} __ANONYMOUS__{iotaValueOfVariable};");
 
-                     unionMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
-                     unionDatas.TryAdd(unionName, new StructData() {
-                        name = unionName,
-                        fields = unionMembers.Select(t => t.member).ToList(),
-                        accessModifier = unionsThatArePresentInOriginalCCode.Contains(unionName) ? "public" : "internal"
-                     });
-                  }
-               }
+               //             structFrontier.Enqueue((structNameOfAnonymousStruct, anonymousStructMatch.Groups["fields"].Value));
+               //          }
+               //       }
+
+               //       // anonymous unions no variable declaration
+               //       {
+               //          for (; ; ) {
+               //             Match anonymousUnionMatchIncomplete = anonymousUnionRegex.Match(fields);
+               //             if (!anonymousUnionMatchIncomplete.Success) {
+               //                break;
+               //             }
+               //             string anonymousUnionWholeUnion = GetWholeBlockUntilFollowingSemicolon(fields, anonymousUnionMatchIncomplete.Index);
+               //             Match anonymousUnionMatch = greedyAnonymousUnionRegex.Match(anonymousUnionWholeUnion);
+               //             int iotaValueOfVariable = iota.Get();
+               //             string unionNameOfAnonymousUnion = GetUnionNameOfAnonymousUnionNoVariable(structName, iotaValueOfVariable);
+               //             fields = fields.Remove(anonymousUnionMatchIncomplete.Index, anonymousUnionWholeUnion.Length)
+               //                            .Insert(anonymousUnionMatchIncomplete.Index, $"{unionNameOfAnonymousUnion} __ANONYMOUS__{iotaValueOfVariable};");
+
+               //             unionFrontier.Enqueue((unionNameOfAnonymousUnion, anonymousUnionMatch.Groups["fields"].Value));
+               //          }
+               //       }
+
+               //       // anonymous unions with variable declaration
+               //       {
+               //          for (; ; ) {
+               //             Match anonymousUnionWithVariableDeclarationMatchIncomplete = anonymousUnionWithVariableDeclarationRegex.Match(fields);
+               //             if (!anonymousUnionWithVariableDeclarationMatchIncomplete.Success) {
+               //                break;
+               //             }
+               //             string anonymousUnionWithVariableDeclarationWholeUnion = GetWholeBlockUntilFollowingSemicolon(fields, anonymousUnionWithVariableDeclarationMatchIncomplete.Index);
+               //             Match anonymousUnionWithVariableDeclarationMatch = greedyAnonymousUnionWithVariableDeclarationRegex.Match(anonymousUnionWithVariableDeclarationWholeUnion);
+               //             string variableName = anonymousUnionWithVariableDeclarationMatch.Groups["variableName"].Value;
+               //             string unionNameOfAnonymousUnionVariable = GetUnionNameOfAnonymousUnionVariable(variableName, structName);
+               //             fields = fields.Remove(anonymousUnionWithVariableDeclarationMatchIncomplete.Index, anonymousUnionWithVariableDeclarationWholeUnion.Length)
+               //                            .Insert(anonymousUnionWithVariableDeclarationMatchIncomplete.Index, $"{unionNameOfAnonymousUnionVariable} {variableName};");
+                           
+               //             unionFrontier.Enqueue((unionNameOfAnonymousUnionVariable, anonymousUnionWithVariableDeclarationMatch.Groups["fields"].Value));
+               //          }
+               //       }
+
+               //       List<(IStructMember member, int matchIndex)> structMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
+               //       MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
+               //       foreach (Match structMemberMatch in structMemberMatches) {
+               //          string name = structMemberMatch.Groups["name"].Value;
+               //          string type = structMemberMatch.Groups["type"].Value;
+               //          type = GetClearerTypeString(type);
+               //          type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+
+               //          structMembers.Add((new StructMember() {
+               //             name = name,
+               //             type = type
+               //          }, structMemberMatch.Index));
+               //       }
+                     
+               //       MatchCollection structMemberArrayMatches = structMemberArrayRegex.Matches(fields);
+               //       foreach (Match structMemberArrayMatch in structMemberArrayMatches) {
+               //          string name = structMemberArrayMatch.Groups["name"].Value;
+               //          string type = structMemberArrayMatch.Groups["type"].Value;
+               //          string size = structMemberArrayMatch.Groups["size"].Value;
+               //          type = GetClearerTypeString(type);
+               //          type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+               //          size = MakeBetterSizeString(size);
+
+               //          structMembers.Add((new StructMemberArray() {
+               //             name = name,
+               //             type = type,
+               //             size = size
+               //          }, structMemberArrayMatch.Index));
+               //       }
+
+               //       structMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
+               //       structDatas.TryAdd(structName, new StructData() {
+               //          name = structName,
+               //          fields = structMembers.Select(t => t.member).ToList(),
+               //          accessModifier = structsThatArePresentInOriginalCCode.Contains(structName) ? "public" : "internal"
+               //       });
+               //    }
+               // }
+
+               // // unions
+               // {
+               //    MatchCollection unionMatches = unionRegex.Matches(file);
+               //    MatchCollection typedefUnionMatches = typedefUnionRegex.Matches(file);
+
+               //    foreach (MatchCollection matchCollection in new MatchCollection[] { typedefUnionMatches, unionMatches }) {
+               //       foreach (Match incompleteMatch in matchCollection) {
+               //          string wholeUnion = GetWholeBlockUntilFollowingSemicolon(file, incompleteMatch.Index);
+               //          Match match = matchCollection == typedefUnionMatches ? greedyTypedefUnionRegex.Match(wholeUnion) : greedyUnionRegex.Match(wholeUnion);
+
+               //          string unionName = match.Groups["name"].Value;
+               //          string fields = match.Groups["fields"].Value;
+               //          unionsThatArePresentInOriginalCCode.Add(unionName);
+               //          unionFrontier.Enqueue((unionName, fields));
+               //       }
+               //    }
+
+               //    while (unionFrontier.Count > 0) {
+               //       (string unionName, string fields) = unionFrontier.Dequeue();
+               //       fields = fields.Trim();
+
+               //       // anonymous structs no variable declaration
+               //       {
+
+               //       }
+
+               //       // i use structmember for unions as well. it says structmember but i couldnt find a better name. you got the idea, right?
+               //       List<(IStructMember member, int matchIndex)> unionMembers = new List<(IStructMember member, int matchIndex)>();
+               //       MatchCollection unionMemberMatches = structMemberRegex.Matches(fields);
+               //       foreach (Match unionMemberMatch in unionMemberMatches) {
+               //          string name = unionMemberMatch.Groups["name"].Value;
+               //          string type = unionMemberMatch.Groups["type"].Value;
+               //          type = GetClearerTypeString(type);
+               //          type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+
+               //          unionMembers.Add((new StructMember() {
+               //             name = name,
+               //             type = type
+               //          }, unionMemberMatch.Index));
+               //       }
+
+               //       MatchCollection unionMemberArrayMatches = structMemberArrayRegex.Matches(fields);
+               //       foreach (Match unionMemberArrayMatch in unionMemberArrayMatches) {
+               //          string name = unionMemberArrayMatch.Groups["name"].Value;
+               //          string type = unionMemberArrayMatch.Groups["type"].Value;
+               //          string size = unionMemberArrayMatch.Groups["size"].Value;
+               //          type = GetClearerTypeString(type);
+               //          type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+               //          size = MakeBetterSizeString(size);
+
+               //          unionMembers.Add((new StructMemberArray() {
+               //             name = name,
+               //             type = type,
+               //             size = size
+               //          }, unionMemberArrayMatch.Index));
+               //       }
+
+               //       unionMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
+               //       unionDatas.TryAdd(unionName, new StructData() {
+               //          name = unionName,
+               //          fields = unionMembers.Select(t => t.member).ToList(),
+               //          accessModifier = unionsThatArePresentInOriginalCCode.Contains(unionName) ? "public" : "internal"
+               //       });
+               //    }
+               // }
             }
          }
 
@@ -592,7 +819,7 @@ namespace Main {
                      // csOutput.AppendLine(fieldOffsetBuilder.ToString());
 
                      // extract out anonymous structs. because thats how you access them in original C code.
-                     if (member.type.StartsWith("__ANONYMOUS__")) {
+                     if (member.type.StartsWith("__ANONYMOUS__") && member.type.EndsWith("_STRUCT")) {
                         StructData anonymousStructData = structDatas[member.type];
                         foreach (StructMember anonymousStructMember in anonymousStructData.fields) {
                            csOutput.AppendLine($"     public {anonymousStructMember.type} {anonymousStructMember.name};");
@@ -823,7 +1050,14 @@ namespace Main {
       }
 
       static string GetStructNameOfAnonymousStructVariable(string variableName, string surroundingStructName) {
-         return $"{surroundingStructName}_{variableName}_struct";
+         return $"{surroundingStructName}_{variableName}_STRUCT";
+      }
+
+      /// <summary>
+      /// It says surroundingStructName but it actually whatever the surrounding structture is. could be union too
+      /// </summary>
+      static string GetUnionNameOfAnonymousUnionVariable(string variableName, string surroundingStructName) {
+         return $"{surroundingStructName}_{variableName}_UNION";
       }
 
       /// <summary>
@@ -831,7 +1065,11 @@ namespace Main {
       /// Starts with __ANONYMOUS__ thats how you can understand if the struct is anonymous or not.
       /// </summary>
       static string GetStructNameOfAnonymousStructNoVariable(string surroundingStructName, int iotaValue) {
-         return $"__ANONYMOUS__{surroundingStructName}_{iotaValue}_struct";
+         return $"__ANONYMOUS__{surroundingStructName}_{iotaValue}_STRUCT";
+      }
+
+      static string GetUnionNameOfAnonymousUnionNoVariable(string surroundingStructName, int iotaValue) {
+         return $"__ANONYMOUS__{surroundingStructName}_{iotaValue}_UNION";
       }
 
       /// <summary>
