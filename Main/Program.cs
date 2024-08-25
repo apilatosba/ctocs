@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       nested types
+//       in csOutput switch to \t instead of manual spacing
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -26,6 +27,7 @@ namespace Main {
          string soFile = "";
          Dictionary<string /*path*/, string /*content*/> headerFiles = new Dictionary<string, string>();
          Dictionary<string /*path*/, string /*content*/> preprocessedHeaderFiles = new Dictionary<string, string>();
+         bool showProgress = true;
 
          for (int i = 0; i < args.Length; i++) {
             if (args[i] == "sofile") {
@@ -58,6 +60,8 @@ namespace Main {
                      preprocessedHeaderFiles.TryAdd(args[i].Trim(), "");
                   }
                }
+            } else if(args[i] == "--no-show-progress") {
+               showProgress = false;
             } else {
                Console.WriteLine($"Unknown argument: {args[i]} at location {i}");
                Environment.Exit(1);
@@ -104,6 +108,10 @@ namespace Main {
          List<DynsymTableEntry> dynsymTable = new List<DynsymTableEntry>();
          // Read .so file into dynsymTable
          {
+            if (showProgress) {
+               Console.WriteLine("Reading .so file...");
+            }
+
             Process readelfProcess = new Process();
             ProcessStartInfo readelfProcessStartInfo = new ProcessStartInfo("readelf", $"-W --dyn-syms \"{soFile}\"") {
                RedirectStandardOutput = true,
@@ -111,10 +119,19 @@ namespace Main {
 
             readelfProcess.StartInfo = readelfProcessStartInfo;
             readelfProcess.Start();
-            StreamReader readelfProcessOutputReader = readelfProcess.StandardOutput;
-            readelfProcess.WaitForExit();
-            string readelfOutput = readelfProcessOutputReader.ReadToEnd();
-            readelfProcessOutputReader.Close();
+            StringBuilder readelfOutputBuilder = new StringBuilder();
+            string readelfOutput;
+            {
+               StreamReader readelfProcessOutputReader = readelfProcess.StandardOutput;
+               string buffer;
+               do {
+                  buffer = readelfProcessOutputReader.ReadToEnd();
+                  readelfOutputBuilder.Append(buffer);
+               } while (buffer != "");
+               readelfProcessOutputReader.Close();
+            }
+            readelfProcess.WaitForExit(); // if standard output is redirected then WaitForExit must be called after reading the output otherwise it hangs forever
+            readelfOutput = readelfOutputBuilder.ToString();
 
             Regex tableEntryRegex = new Regex(@"\s+(?<num>\d+):\s+(?<value>[0-9a-fA-F]+)\s+(?<size>\d+)\s+(?<type>\S+)\s+(?<bind>\S+)\s+(?<vis>\S+)\s+(?<ndx>\S+)\s+(?<name>\S+)");
             MatchCollection matches = tableEntryRegex.Matches(readelfOutput);
@@ -137,14 +154,30 @@ namespace Main {
 
          // Read .h files
          {
+            if (showProgress) {
+               Console.WriteLine("Reading .h files...");
+            }
+
             foreach (string headerFile in headerFiles.Keys) {
+               if (showProgress) {
+                  Console.WriteLine($"\tReading {headerFile}...");
+               }
+
                headerFiles[headerFile] = File.ReadAllText(headerFile);
             }
          }
 
          // Read preprocessed .h files
          {
+            if (showProgress) {
+               Console.WriteLine("Reading preprocessed .h files...");
+            }
+
             foreach (string preprocessedHeaderFile in preprocessedHeaderFiles.Keys) {
+               if (showProgress) {
+                  Console.WriteLine($"\tReading {preprocessedHeaderFile}...");
+               }
+               
                preprocessedHeaderFiles[preprocessedHeaderFile] = File.ReadAllText(preprocessedHeaderFile);
             }
          }
@@ -156,7 +189,13 @@ namespace Main {
             // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
             Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?[\w.]+[""']?) *$", RegexOptions.Multiline);
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
-            foreach (string file in headerFiles.Values) {
+            foreach (var kvp in headerFiles) {
+               string file = kvp.Value; // file contents
+               string path = kvp.Key;
+               if (showProgress) {
+                  Console.WriteLine($"Processing defines [{path}]...");
+               }
+               
                // single line defines
                {
                   MatchCollection matches = singleLineDefineRegex.Matches(file);
@@ -222,9 +261,16 @@ namespace Main {
             Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^]+?))?\s*,");
             Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
-            foreach (string file in preprocessedHeaderFiles.Values) {
+            foreach (var kvp in preprocessedHeaderFiles) {
+               string file = kvp.Value; // file contents
+               string path = kvp.Key;
+
                // typedefs
                {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing typedefs [{path}]...");
+                  }
+                  
                   MatchCollection matches = typedefRegex.Matches(file);
                   foreach (Match match in matches) {
                      string originalType = match.Groups["originalType"].Value.Trim();
@@ -240,13 +286,20 @@ namespace Main {
                }
             }
 
-            foreach (string file in preprocessedHeaderFiles.Values) {
+            foreach (var kvp in preprocessedHeaderFiles) {
+               string file = kvp.Value; // file contents
+               string path = kvp.Key;
+               
                Queue<(string name, string fields)> unionFrontier = new Queue<(string name, string fields)>();
                Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
                Queue<(string enumName, string members)> enumFrontier = new Queue<(string enumName, string members)>();
 
                // functions
                {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing functions [{path}]...");
+                  }
+                  
                   MatchCollection matches = functionRegex.Matches(file);
                   foreach (Match match in matches) {
                      string returnType = match.Groups["returnType"].Value.Replace(" ", ""); // get rid of the spaces including this type of thing "int *"
@@ -280,6 +333,10 @@ namespace Main {
 
                // structs and unions merged. they are merged because unions may add the structFrontier. and structs may add the unionFrontier. so i need to process them together.
                {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing structs and unions [{path}]...");
+                  }
+
                   // struct
                   MatchCollection typedefStructMatches = typedefStructRegex.Matches(file);
                   MatchCollection structMatches = structRegex.Matches(file);
@@ -487,6 +544,10 @@ namespace Main {
 
                // enums
                {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing enums [{path}]...");
+                  }
+
                   Regex wordRegex = new Regex(@"\w+");
                   MatchCollection enumMatches = enumRegex.Matches(file);
                   MatchCollection typedefEnumMatches = typedefEnumRegex.Matches(file);
@@ -616,6 +677,10 @@ namespace Main {
 
          // defines
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting defines...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"     // DEFINES");
             foreach (var kvp in singleLineDefines) {
@@ -697,7 +762,9 @@ namespace Main {
                      anUnknownWordExists = true;
                      break;
                   } else {
-                     typeOfKnownWord = singleLineDefineTypes[word.Value];
+                     if (singleLineDefineTypes.TryGetValue(word.Value, out Type value)) {
+                        typeOfKnownWord = value;
+                     }
                   }
                }
                if (!anUnknownWordExists) {
@@ -708,6 +775,10 @@ namespace Main {
 
          // anonymous enums
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting anonymous enums...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"     // ANONYMOUS ENUMS");
             foreach (List<EnumMember> anonymousEnum in anonymousEnums) {
@@ -720,6 +791,10 @@ namespace Main {
          List<FunctionData> functionsInNative = new List<FunctionData>();
          // functions
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting functions...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"     // FUNCTIONS");
             foreach (DynsymTableEntry entry in dynsymTable) {
@@ -748,6 +823,10 @@ namespace Main {
 
          // structs
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting structs...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"  // STRUCTS");
             foreach (StructData structData in structDatas.Values) {
@@ -803,6 +882,10 @@ namespace Main {
 
          // unions
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting unions...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"  // UNIONS");
             foreach (StructData unionData in unionDatas.Values) {
@@ -833,6 +916,10 @@ namespace Main {
 
          // enums
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting enums...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine($"  // ENUMS");
             foreach (EnumData enumData in enumDatas.Values) {
@@ -850,6 +937,10 @@ namespace Main {
 
          // Safe wrapper
          {
+            if (showProgress) {
+               Console.WriteLine($"\tWriting safe wrapper...");
+            }
+
             csOutput.AppendLine();
             csOutput.AppendLine("   public static unsafe partial class Safe {");
 
@@ -889,18 +980,34 @@ namespace Main {
 
          csOutput.AppendLine("}");
 
+
+         if (showProgress) {
+            Console.WriteLine($"Creating the output directory...");
+         }
          string outputDirectory = $"ctocs_{libName}";
          Directory.CreateDirectory(outputDirectory);
+
+         if (showProgress) {
+            Console.WriteLine($"Writing csharp file...");
+         }
          File.WriteAllText(Path.Combine(outputDirectory, $"{libName}.cs"), csOutput.ToString());
-         Process.Start("dotnet", $"format whitespace --folder {outputDirectory}").WaitForExit();
+
+         // is it just me or dotnet format kinda sucks
+         // if (showProgress) {
+         //    Console.WriteLine($"Formatting the code...");
+         // }
+         // Process.Start("dotnet", $"format whitespace --folder {outputDirectory}").WaitForExit();
       }
 
       static void PrintHelp() {
          string help =
          """
-         Usage: ctocs sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h files>,,
+         Usage: ctocs sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h files>,, [options]
                 ctocs [--help | -h]
 
+         Options:
+            --help, -h: Show this help message.
+            no-show-progress: Do not show progress bar.
          Examples:
             ctocs hfiles file1.h file2.h,, sofile libexample.so phfiles pfile1.h pfile2.h,,
          """;
@@ -1061,7 +1168,7 @@ namespace Main {
       /// <param name="size"></param>
       /// <returns></returns>
       static string MakeBetterSizeString(in string size) {
-         Regex wordRegex = new Regex(@"\w+?");
+         Regex wordRegex = new Regex(@"\w+");
          MatchCollection wordsInSizeMatches = wordRegex.Matches(size);
          StringBuilder sizeBuilder = new StringBuilder();
          for (int i = 0; i < wordsInSizeMatches.Count; i++) {
