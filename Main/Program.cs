@@ -258,7 +258,7 @@ namespace Main {
             Regex greedyTypedefUnionRegex = new Regex(@"typedef\s+union(?:\s+\w+)?\s*\{(?<fields>.*)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
             Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+\w+)?\s*\{(?<members>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
-            Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^]+?))?\s*,");
+            Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,");
             Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             foreach (var kvp in preprocessedHeaderFiles) {
