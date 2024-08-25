@@ -7,11 +7,13 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 // TODO: comments, function pointers.
+// 		fix. why is there struct keyword: public static extern byte ImGuiTextFilter_IsActive(struct ImGuiTextFilter*self);
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       nested types
-//       in csOutput switch to \t instead of manual spacing
-// 		fix. why is there struct keyword: public static extern byte ImGuiTextFilter_IsActive(struct ImGuiTextFilter*self);      
+//       bitfields
+//       variadics // https://github.com/dotnet/roslyn/blob/main/docs/compilers/CSharp/__arglist.md
+//       there is something wrong with my typedefs dictionary
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -248,7 +250,8 @@ namespace Main {
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          {
             Regex functionRegex = new Regex(@"(?<returnType>\w+\s*\**)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
-            Regex functionArgRegex = new Regex(@"(?<type>\w+(?:\s+\w+)?[\s*]\s*\**)\s*(?<parameterName>\w+)"); // type ends with either star or whitespace
+            Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+),"); // type ends with either star or whitespace (instead of closing bracket do a little hack and add a comma at the end of the whole match)
+            Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+)\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
             Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             // TODO: typedefStructRegex doesnt capture the name after the keyword "struct". it skips it and only uses the name at the end of the struct. this problem also exist in greedy version and union version. should i handle this above in typedefs?
@@ -264,7 +267,7 @@ namespace Main {
             Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>[\w\s]+?)\s+(?<newType>\w+)\s*;");
-            Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
+            Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\s*]\s*\**)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s+\-*/^%&()|~]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
             Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
             Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
             Regex typedefUnionRegex = new Regex(@"typedef\s+union(?:\s+\w+)?\s*\{(?<fields>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
@@ -289,9 +292,12 @@ namespace Main {
                      string originalType = match.Groups["originalType"].Value.Trim();
                      string newType = match.Groups["newType"].Value;
                      string csharpType = TypeInfo.basicTypes.TryGetValue(originalType, out string convertedType) ? convertedType : originalType;
+                     
                      if (csharpType.StartsWith("signed")) {
                         csharpType = csharpType.Remove(0, "signed ".Length).Trim();
                      }
+                     // TODO: typedefs shouldnt contain cycles. the proper structure should be a tree.
+                     //       either use a tree or check for cycles when adding a new typedef or when resolving a typedef.
                      if (newType != csharpType) {
                         if (!typedefs.TryAdd(newType, csharpType)) {
                            // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
@@ -316,32 +322,47 @@ namespace Main {
                   }
 
                   MatchCollection matches = functionRegex.Matches(file);
-                  foreach (Match match in matches) {
-                     string returnType = match.Groups["returnType"].Value.Replace(" ", ""); // get rid of the spaces including this type of thing "int *"
-                     string functionName = match.Groups["functionName"].Value.Trim();
-                     string functionArgs = match.Groups["args"].Value.Trim();
-
+                  foreach (Match functionMatch in matches) {
+                     string returnType = functionMatch.Groups["returnType"].Value.Replace(" ", ""); // get rid of the spaces including this type of thing "int *"
+                     string functionName = functionMatch.Groups["functionName"].Value.Trim();
+                     string functionArgs = functionMatch.Groups["args"].Value.Trim();
+                     functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
+                     functionArgs = RemoveConsts(functionArgs, out _);
                      returnType = ResolveTypedefsAndApplyBasicConversion(returnType, typedefs);
 
-                     List<FunctionParameterData> parameterDatas = new List<FunctionParameterData>();
-                     string[] functionArgsSplitted = functionArgs.Split(',');
-                     foreach (string elementInSplitted in functionArgsSplitted) {
-                        Match functionArgMatch = functionArgRegex.Match(elementInSplitted);
-                        string parameterName = functionArgMatch.Groups["parameterName"].Value;
-                        string type = functionArgMatch.Groups["type"].Value; // from "type" i want to get only the last token. i dont want to get "struct" from "struct foo". but i do want to keep the star if it is a pointer.
-                        type = GetClearerTypeString(type);
-                        type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
+                     List<(IFunctionParameterData parameterData, int matchIndex)> parameterDatas = new List<(IFunctionParameterData parameterData, int matchIndex)>();
+                     MatchCollection functionArgsMatches = functionArgRegex.Matches(functionArgs);
+                     MatchCollection functionArgArrayMatches = functionArgArrayRegex.Matches(functionArgs);
+                     foreach (MatchCollection matchCollection in new MatchCollection[] { functionArgsMatches, functionArgArrayMatches }) {
+                        foreach (Match functionArgMatch in matchCollection) {
+                           string parameterName = functionArgMatch.Groups["parameterName"].Value;
+                           string type = functionArgMatch.Groups["type"].Value;
+                           string arrayPart = functionArgMatch.Groups["arrayPart"].Value;
+                           type = GetClearerTypeString(type);
+                           type = ResolveTypedefsAndApplyBasicConversion(type, typedefs);
 
-                        parameterDatas.Add(new FunctionParameterData() {
-                           type = type,
-                           name = parameterName
-                        });
+                           if (matchCollection == functionArgArrayMatches) {
+                              parameterDatas.Add((new FunctionParameterArrayData() {
+                                 type = type,
+                                 name = parameterName,
+                                 arrayPart = arrayPart
+                              }, functionArgMatch.Index));
+                           } else if (matchCollection == functionArgsMatches) {
+                              parameterDatas.Add((new FunctionParameterData() {
+                                 type = type,
+                                 name = parameterName,
+                              }, functionArgMatch.Index));
+                           } else {
+                              throw new UnreachableException();
+                           }
+                        }
                      }
 
+                     parameterDatas.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
                      functionDatas.TryAdd(functionName, new FunctionData() {
                         returnType = returnType,
                         name = functionName,
-                        parameters = parameterDatas,
+                        parameters = parameterDatas.Select(t => t.parameterData).ToList(),
                      });
                   }
                }
@@ -821,8 +842,17 @@ namespace Main {
                   if (functionDatas.TryGetValue(functionName, out FunctionData functionData)) {
                      StringBuilder functionArgs = new StringBuilder();
                      for (int i = 0; i < functionData.parameters.Count; i++) {
-                        FunctionParameterData parameterData = functionData.parameters[i];
-                        functionArgs.Append($"{parameterData.type} {parameterData.name}");
+                        if (functionData.parameters[i] is FunctionParameterData) {
+                           FunctionParameterData parameterData = functionData.parameters[i] as FunctionParameterData;
+                           functionArgs.Append($"{parameterData.type} {parameterData.name}");
+                        } else if (functionData.parameters[i] is FunctionParameterArrayData) {
+                           FunctionParameterArrayData parameterData = functionData.parameters[i] as FunctionParameterArrayData;
+                           string type = GetTypeStringOfFunctionParameterArray(parameterData, out _);
+                           functionArgs.Append($"{type} {parameterData.name}");
+                        } else {
+                           throw new UnreachableException();
+                        }
+
                         if (i != functionData.parameters.Count - 1) {
                            functionArgs.Append(", ");
                         }
@@ -966,15 +996,35 @@ namespace Main {
                   List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
                   List<int> indicesOfParametersToBeModified = new List<int>();
                   for (int i = 0; i < functionData.parameters.Count; i++) {
-                     FunctionParameterData parameterData = functionData.parameters[i];
-                     if (parameterData.type.Count(c => c == '*') == 1 && IsBasicType(parameterData.type.Substring(0, parameterData.type.Length - 1))) {
-                        newParameters.Add(new FunctionParameterData() {
-                           type = $"{parameterData.type.Replace("*", "[]")}",
-                           name = parameterData.name
-                        });
-                        indicesOfParametersToBeModified.Add(i);
+                     if (functionData.parameters[i] is FunctionParameterData) {
+                        FunctionParameterData parameterData = functionData.parameters[i] as FunctionParameterData;
+                        if (parameterData.type.Count(c => c == '*') == 1 && IsBasicType(parameterData.type.Substring(0, parameterData.type.Length - 1))) {
+                           newParameters.Add(new FunctionParameterData() {
+                              type = $"{parameterData.type.Replace("*", "[]")}",
+                              name = parameterData.name
+                           });
+                           indicesOfParametersToBeModified.Add(i);
+                        } else {
+                           newParameters.Add(parameterData);
+                        }
+                     } else if (functionData.parameters[i] is FunctionParameterArrayData) {
+                        FunctionParameterArrayData parameterData = functionData.parameters[i] as FunctionParameterArrayData;
+                        if (parameterData.type.Count(c => c == '*') == 0 &&
+                              parameterData.arrayPart.Count(c => c == '[') == 1) {
+                           newParameters.Add(new FunctionParameterData() {
+                              type = $"{parameterData.type}[]",
+                              name = parameterData.name
+                           });
+                           indicesOfParametersToBeModified.Add(i);
+                        } else {
+                           string type = GetTypeStringOfFunctionParameterArray(parameterData, out _);
+                           newParameters.Add(new FunctionParameterData() {
+                              type = type,
+                              name = parameterData.name
+                           });
+                        }
                      } else {
-                        newParameters.Add(parameterData);
+                        throw new UnreachableException();
                      }
                   }
 
@@ -984,8 +1034,15 @@ namespace Main {
 
                   csOutput.AppendLine($"\t\tpublic static {functionData.returnType} {functionData.name}({string.Join(", ", newParameters.Select(p => $"{p.type} {p.name}"))}) {{");
                   foreach (int index in indicesOfParametersToBeModified) {
-                     FunctionParameterData parameterData = functionData.parameters[index];
-                     csOutput.AppendLine($"\t\t\tfixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
+                     if (functionData.parameters[index] is FunctionParameterData) {
+                        FunctionParameterData parameterData = functionData.parameters[index] as FunctionParameterData;
+                        csOutput.AppendLine($"\t\t\tfixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
+                     } else if (functionData.parameters[index] is FunctionParameterArrayData) {
+                        FunctionParameterArrayData parameterData = functionData.parameters[index] as FunctionParameterArrayData;
+                        csOutput.AppendLine($"\t\t\tfixed({parameterData.type}* {parameterData.name}Ptr = &{parameterData.name}[0])");
+                     } else {
+                        throw new UnreachableException();
+                     }
                   }
                   csOutput.AppendLine($"\t\t\t\t{(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name))});");
                   csOutput.AppendLine("\t\t}");
@@ -1094,6 +1151,10 @@ namespace Main {
             result = resultBuilder.ToString();
          }
 
+         if (result.StartsWith("struct ")) {
+            result = result.Remove(0, "struct ".Length);
+         }
+
          return result;
       }
 
@@ -1198,6 +1259,27 @@ namespace Main {
             }
          }
          return sizeBuilder.ToString();
+      }
+
+      static string RemoveConsts(in string s, out bool hasConst) {
+         Regex constRegex = new Regex(@"\bconst\b");
+         string result = s;
+         hasConst = false;
+         for (; ; ) {
+            Match match = constRegex.Match(result);
+            if (!match.Success) {
+               break;
+            }
+            hasConst = true;
+            result = result.Remove(match.Index, match.Length);
+         }
+
+         return result;
+      }
+
+      static string GetTypeStringOfFunctionParameterArray(FunctionParameterArrayData parameterArrayData, out int numberOfOpeningBraces) {
+         numberOfOpeningBraces = parameterArrayData.arrayPart.Count(c => c == '[');
+         return $"{parameterArrayData.type}{new string('*', numberOfOpeningBraces)}";
       }
    }
 }

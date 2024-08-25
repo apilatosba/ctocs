@@ -10,12 +10,12 @@ namespace Main {
          { "signed char", "sbyte" }, // signed specifier can be ignored other than "signed char"
          { "char", "byte" },
          { "size_t", "uint" },
-         { "char* []", "byte**" },
          { "unsigned int", "uint" },
          { "unsigned short", "ushort" },
          { "unsigned short int", "ushort" },
          { "unsigned long", "ulong" },
          { "unsigned long int", "ulong" },
+         { "unsigned long long", "ulong" },
          { "unsigned long long int", "ulong" },
          { "short int", "short" },
          { "long int", "long" },

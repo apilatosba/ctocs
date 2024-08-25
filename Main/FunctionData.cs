@@ -4,6 +4,6 @@ namespace Main {
    public class FunctionData {
       public string returnType;
       public string name;
-      public List<FunctionParameterData> parameters;
+      public List<IFunctionParameterData> parameters;
    }
 }
