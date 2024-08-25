@@ -11,6 +11,7 @@ using System.Text.RegularExpressions;
 //       safe wrapper for pointer types
 //       nested types
 //       in csOutput switch to \t instead of manual spacing
+// 		fix. why is there struct keyword: public static extern byte ImGuiTextFilter_IsActive(struct ImGuiTextFilter*self);      
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -693,7 +694,7 @@ namespace Main {
          // defines
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting defines...");
+               Console.WriteLine($"Preparing defines to be written...");
             }
 
             csOutput.AppendLine();
@@ -791,7 +792,7 @@ namespace Main {
          // anonymous enums
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting anonymous enums...");
+               Console.WriteLine($"Preparing anonymous enums to be written...");
             }
 
             csOutput.AppendLine();
@@ -807,7 +808,7 @@ namespace Main {
          // functions
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting functions...");
+               Console.WriteLine($"Preparing functions to be written...");
             }
 
             csOutput.AppendLine();
@@ -839,7 +840,7 @@ namespace Main {
          // structs
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting structs...");
+               Console.WriteLine($"Preparing structs to be written...");
             }
 
             csOutput.AppendLine();
@@ -898,7 +899,7 @@ namespace Main {
          // unions
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting unions...");
+               Console.WriteLine($"Preparing unions to be written...");
             }
 
             csOutput.AppendLine();
@@ -932,7 +933,7 @@ namespace Main {
          // enums
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting enums...");
+               Console.WriteLine($"Preparing enums to be written...");
             }
 
             csOutput.AppendLine();
@@ -953,7 +954,7 @@ namespace Main {
          // Safe wrapper
          {
             if (showProgress) {
-               Console.WriteLine($"\tWriting safe wrapper...");
+               Console.WriteLine($"Preparing safe wrapper to be written...");
             }
 
             csOutput.AppendLine();
@@ -1003,7 +1004,7 @@ namespace Main {
          Directory.CreateDirectory(outputDirectory);
 
          if (showProgress) {
-            Console.WriteLine($"Writing csharp file...");
+            Console.WriteLine($"Writing to file...");
          }
          File.WriteAllText(Path.Combine(outputDirectory, $"{libName}.cs"), csOutput.ToString());
 
@@ -1012,6 +1013,9 @@ namespace Main {
          //    Console.WriteLine($"Formatting the code...");
          // }
          // Process.Start("dotnet", $"format whitespace --folder {outputDirectory}").WaitForExit();
+
+         Console.ForegroundColor = ConsoleColor.Green;
+         Console.WriteLine($"Done. Output is in \"{outputDirectory}\"");
       }
 
       static void PrintHelp() {
