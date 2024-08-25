@@ -672,8 +672,8 @@ namespace Main {
          csOutput.AppendLine($"using System.Runtime.InteropServices;");
          csOutput.AppendLine();
          csOutput.AppendLine($"namespace {libName} {{");
-         csOutput.AppendLine($"  public static unsafe partial class Native {{");
-         csOutput.AppendLine($"     public const string LIBRARY_NAME = @\"{soFile}\";");
+         csOutput.AppendLine($"\tpublic static unsafe partial class Native {{");
+         csOutput.AppendLine($"\t\tpublic const string LIBRARY_NAME = @\"{soFile}\";");
 
          // defines
          {
@@ -682,22 +682,22 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"     // DEFINES");
+            csOutput.AppendLine($"\t\t// DEFINES");
             foreach (var kvp in singleLineDefines) {
                if (int.TryParse(kvp.Value, out int intValue)) {
-                  csOutput.AppendLine($"     public const int {kvp.Key} = {intValue};");
+                  csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {intValue};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(int));
                } else if (float.TryParse(kvp.Value, out float floatValue)) {
-                  csOutput.AppendLine($"     public const float {kvp.Key} = {floatValue}f;");
+                  csOutput.AppendLine($"\t\tpublic const float {kvp.Key} = {floatValue}f;");
                   singleLineDefineTypes.Add(kvp.Key, typeof(float));
                } else if (double.TryParse(kvp.Value, out double doubleValue)) {
-                  csOutput.AppendLine($"     public const double {kvp.Key} = {doubleValue}d;");
+                  csOutput.AppendLine($"\t\tpublic const double {kvp.Key} = {doubleValue}d;");
                   singleLineDefineTypes.Add(kvp.Key, typeof(double));
                } else if (kvp.Value.StartsWith('"') && kvp.Value.EndsWith('"')) {
-                  csOutput.AppendLine($"     public const string {kvp.Key} = {kvp.Value};");
+                  csOutput.AppendLine($"\t\tpublic const string {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(string));
                } else if (kvp.Value.StartsWith('\'') && kvp.Value.EndsWith('\'')) {
-                  csOutput.AppendLine($"     public const char {kvp.Key} = {kvp.Value};");
+                  csOutput.AppendLine($"\t\tpublic const char {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(char));
                } else {
                   // lets check int float double considering suffixes
@@ -717,29 +717,29 @@ namespace Main {
 
                   if (suffix == "f") {
                      if (float.TryParse(suffixRemoved.ToString(), out float floatValue2)) {
-                        csOutput.AppendLine($"     public const float {kvp.Key} = {floatValue2}f;");
+                        csOutput.AppendLine($"\t\tpublic const float {kvp.Key} = {floatValue2}f;");
                         singleLineDefineTypes.Add(kvp.Key, typeof(float));
                      }
                   } else if (suffix == "ll") {
                      if (long.TryParse(suffixRemoved.ToString(), out long longValue)) {
-                        csOutput.AppendLine($"     public const long {kvp.Key} = {longValue};");
+                        csOutput.AppendLine($"\t\tpublic const long {kvp.Key} = {longValue};");
                         singleLineDefineTypes.Add(kvp.Key, typeof(long));
                      }
                   } else if (suffix == "ull" || suffix == "llu" || suffix == "ul" || suffix == "lu") {
                      if (ulong.TryParse(suffixRemoved.ToString(), out ulong ulongValue)) {
-                        csOutput.AppendLine($"     public const ulong {kvp.Key} = {ulongValue};");
+                        csOutput.AppendLine($"\t\tpublic const ulong {kvp.Key} = {ulongValue};");
                         singleLineDefineTypes.Add(kvp.Key, typeof(ulong));
                      }
                   } else if (suffix == "l") {
                      // it could be anything. if it contains a dot then lets do double otherwise do long.
                      if (suffixRemoved.ToString().Contains('.')) {
                         if (double.TryParse(suffixRemoved.ToString(), out double doubleValue2)) {
-                           csOutput.AppendLine($"     public const double {kvp.Key} = {doubleValue2}d;");
+                           csOutput.AppendLine($"\t\tpublic const double {kvp.Key} = {doubleValue2}d;");
                            singleLineDefineTypes.Add(kvp.Key, typeof(double));
                         }
                      } else {
                         if (long.TryParse(suffixRemoved.ToString(), out long longValue2)) {
-                           csOutput.AppendLine($"     public const long {kvp.Key} = {longValue2};");
+                           csOutput.AppendLine($"\t\tpublic const long {kvp.Key} = {longValue2};");
                            singleLineDefineTypes.Add(kvp.Key, typeof(long));
                         }
                      }
@@ -768,7 +768,7 @@ namespace Main {
                   }
                }
                if (!anUnknownWordExists) {
-                  csOutput.AppendLine($"     public const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};");
+                  csOutput.AppendLine($"\t\tpublic const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};");
                }
             }
          }
@@ -780,10 +780,10 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"     // ANONYMOUS ENUMS");
+            csOutput.AppendLine($"\t\t// ANONYMOUS ENUMS");
             foreach (List<EnumMember> anonymousEnum in anonymousEnums) {
                foreach (EnumMember enumMember in anonymousEnum) {
-                  csOutput.AppendLine($"     public const int {enumMember.identifier} = {enumMember.value};");
+                  csOutput.AppendLine($"\t\tpublic const int {enumMember.identifier} = {enumMember.value};");
                }
             }
          }
@@ -796,7 +796,7 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"     // FUNCTIONS");
+            csOutput.AppendLine($"\t\t// FUNCTIONS");
             foreach (DynsymTableEntry entry in dynsymTable) {
                if (entry.type == "FUNC" &&
                   entry.bind == "GLOBAL" &&
@@ -811,15 +811,15 @@ namespace Main {
                            functionArgs.Append(", ");
                         }
                      }
-                     csOutput.AppendLine($"      [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{entry.name}\")]");
-                     csOutput.AppendLine($"      public static extern {functionData.returnType} {functionData.name}({functionArgs});");
+                     csOutput.AppendLine($"\t\t[DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{entry.name}\")]");
+                     csOutput.AppendLine($"\t\tpublic static extern {functionData.returnType} {functionData.name}({functionArgs});");
                      functionsInNative.Add(functionData);
                   }
                }
             }
          }
 
-         csOutput.AppendLine("   }");
+         csOutput.AppendLine("\t}");
 
          // structs
          {
@@ -828,7 +828,7 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"  // STRUCTS");
+            csOutput.AppendLine($"\t// STRUCTS");
             foreach (StructData structData in structDatas.Values) {
                if (structData.fields.Count == 0) {
                   continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
@@ -836,7 +836,7 @@ namespace Main {
 
                // csOutput.AppendLine($"  [StructLayout(LayoutKind.Explicit)]");
                // csOutput.AppendLine($"  {structData.accessModifier} unsafe partial struct {structData.name} {{"); // Inconsistent accessibility: field type 'Outer_inner_struct' is less accessible than field 'Outer.inner' [Main]csharp(CS0052)
-               csOutput.AppendLine($"  public unsafe partial struct {structData.name} {{");
+               csOutput.AppendLine($"\tpublic unsafe partial struct {structData.name} {{");
                for (int i = 0; i < structData.fields.Count; i++) {
                   if (structData.fields[i] is StructMember) {
                      StructMember member = structData.fields[i] as StructMember;
@@ -862,21 +862,21 @@ namespace Main {
                      if (member.type.StartsWith("__ANONYMOUS__") && member.type.EndsWith("_STRUCT")) {
                         StructData anonymousStructData = structDatas[member.type];
                         foreach (StructMember anonymousStructMember in anonymousStructData.fields) {
-                           csOutput.AppendLine($"     public {anonymousStructMember.type} {anonymousStructMember.name};");
+                           csOutput.AppendLine($"\t\tpublic {anonymousStructMember.type} {anonymousStructMember.name};");
                         }
                      } else {
-                        csOutput.AppendLine($"     public {member.type} {member.name};");
+                        csOutput.AppendLine($"\t\tpublic {member.type} {member.name};");
                      }
                   } else if (structData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = structData.fields[i] as StructMemberArray;
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
-                        csOutput.AppendLine($"     public fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
+                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
                      } else {
                         // TODO: idk what to do
                      }
                   }
                }
-               csOutput.AppendLine("   }");
+               csOutput.AppendLine("\t}");
             }
          }
 
@@ -887,30 +887,30 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"  // UNIONS");
+            csOutput.AppendLine($"\t// UNIONS");
             foreach (StructData unionData in unionDatas.Values) {
                if (unionData.fields.Count == 0) {
                   continue;
                }
 
-               csOutput.AppendLine($"  [StructLayout(LayoutKind.Explicit)]");
-               csOutput.AppendLine($"  public unsafe partial struct {unionData.name} {{");
+               csOutput.AppendLine($"\t[StructLayout(LayoutKind.Explicit)]");
+               csOutput.AppendLine($"\tpublic unsafe partial struct {unionData.name} {{");
                for (int i = 0; i < unionData.fields.Count; i++) {
                   if (unionData.fields[i] is StructMember) {
                      StructMember member = unionData.fields[i] as StructMember;
-                     csOutput.AppendLine($"     [FieldOffset(0)]");
-                     csOutput.AppendLine($"     public {member.type} {member.name};");
+                     csOutput.AppendLine($"\t\t[FieldOffset(0)]");
+                     csOutput.AppendLine($"\t\tpublic {member.type} {member.name};");
                   } else if (unionData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = unionData.fields[i] as StructMemberArray;
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
-                        csOutput.AppendLine($"     [FieldOffset(0)]");
-                        csOutput.AppendLine($"     public fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
+                        csOutput.AppendLine($"\t\t[FieldOffset(0)]");
+                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
                      } else {
                         // TODO: donk
                      }
                   }
                }
-               csOutput.AppendLine("   }");
+               csOutput.AppendLine("\t}");
             }
          }
 
@@ -921,17 +921,17 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine($"  // ENUMS");
+            csOutput.AppendLine($"\t// ENUMS");
             foreach (EnumData enumData in enumDatas.Values) {
                if (enumData.members.Count == 0) {
                   continue; // assuming the original enum is not empty and my regex matched it wrong. so skip
                }
 
-               csOutput.AppendLine($"  public enum {enumData.name} {{");
+               csOutput.AppendLine($"\tpublic enum {enumData.name} {{");
                foreach (EnumMember enumMember in enumData.members) {
-                  csOutput.AppendLine($"     {enumMember.identifier}{(string.IsNullOrEmpty(enumMember.value) ? "" : $" = {enumMember.value}")},");
+                  csOutput.AppendLine($"\t\t{enumMember.identifier}{(string.IsNullOrEmpty(enumMember.value) ? "" : $" = {enumMember.value}")},");
                }
-               csOutput.AppendLine("   }");
+               csOutput.AppendLine("\t}");
             }
          }
 
@@ -942,7 +942,7 @@ namespace Main {
             }
 
             csOutput.AppendLine();
-            csOutput.AppendLine("   public static unsafe partial class Safe {");
+            csOutput.AppendLine("\tpublic static unsafe partial class Safe {");
 
             // function parameters with single star pointers
             {
@@ -966,16 +966,16 @@ namespace Main {
                      continue;
                   }
 
-                  csOutput.AppendLine($"     public static {functionData.returnType} {functionData.name}({string.Join(", ", newParameters.Select(p => $"{p.type} {p.name}"))}) {{");
+                  csOutput.AppendLine($"\t\tpublic static {functionData.returnType} {functionData.name}({string.Join(", ", newParameters.Select(p => $"{p.type} {p.name}"))}) {{");
                   foreach (int index in indicesOfParametersToBeModified) {
                      FunctionParameterData parameterData = functionData.parameters[index];
-                     csOutput.AppendLine($"        fixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
+                     csOutput.AppendLine($"\t\t\tfixed({parameterData.type} {parameterData.name}Ptr = &{parameterData.name}[0])");
                   }
-                  csOutput.AppendLine($"        {(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name))});");
-                  csOutput.AppendLine("     }");
+                  csOutput.AppendLine($"\t\t\t\t{(functionData.returnType == "void" ? "" : "return ")}Native.{functionData.name}({string.Join(", ", newParameters.Select((p, i) => indicesOfParametersToBeModified.Contains(i) ? $"{p.name}Ptr" : p.name))});");
+                  csOutput.AppendLine("\t\t}");
                }
             }
-            csOutput.AppendLine("   }");
+            csOutput.AppendLine("\t}");
          }
 
          csOutput.AppendLine("}");
