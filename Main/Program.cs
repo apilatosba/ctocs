@@ -169,6 +169,7 @@ namespace Main {
 
          // Read preprocessed .h files
          {
+            Regex gibberishLineGeneratedByPreprocessorRegex = new Regex(@"^# \d+ "".*"".*$", RegexOptions.Multiline);
             if (showProgress) {
                Console.WriteLine("Reading preprocessed .h files...");
             }
@@ -179,6 +180,17 @@ namespace Main {
                }
                
                preprocessedHeaderFiles[preprocessedHeaderFile] = File.ReadAllText(preprocessedHeaderFile);
+
+               // remove gibberish lines
+               {
+                  for (; ; ) {
+                     Match gibberishLineMatch = gibberishLineGeneratedByPreprocessorRegex.Match(preprocessedHeaderFiles[preprocessedHeaderFile]);
+                     if (!gibberishLineMatch.Success) {
+                        break;
+                     }
+                     preprocessedHeaderFiles[preprocessedHeaderFile] = preprocessedHeaderFiles[preprocessedHeaderFile].Remove(gibberishLineMatch.Index, gibberishLineMatch.Length);
+                  }
+               }
             }
          }
 
@@ -258,7 +270,7 @@ namespace Main {
             Regex greedyTypedefUnionRegex = new Regex(@"typedef\s+union(?:\s+\w+)?\s*\{(?<fields>.*)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
             Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+\w+)?\s*\{(?<members>.*?)\}\s*(?<name>\w+)\s*;", RegexOptions.Singleline);
-            Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,");
+            Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,"); // regex reqiures a comma at the end. i will manually add a comma to the end of the membersString so it doesnt miss the last element
             Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
             Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             foreach (var kvp in preprocessedHeaderFiles) {
@@ -279,8 +291,10 @@ namespace Main {
                      if (csharpType.StartsWith("signed")) {
                         csharpType = csharpType.Remove(0, "signed ".Length).Trim();
                      }
-                     if (!typedefs.TryAdd(newType, csharpType)) {
-                        // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
+                     if (newType != csharpType) {
+                        if (!typedefs.TryAdd(newType, csharpType)) {
+                           // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
+                        }
                      }
                   }
                }
@@ -299,7 +313,7 @@ namespace Main {
                   if (showProgress) {
                      Console.WriteLine($"Processing functions [{path}]...");
                   }
-                  
+
                   MatchCollection matches = functionRegex.Matches(file);
                   foreach (Match match in matches) {
                      string returnType = match.Groups["returnType"].Value.Replace(" ", ""); // get rid of the spaces including this type of thing "int *"
@@ -570,6 +584,7 @@ namespace Main {
                   while (enumFrontier.Count > 0) {
                      (string enumName, string membersString) = enumFrontier.Dequeue();
                      membersString = membersString.Trim();
+                     membersString += ","; // add a comma to the end so the last member can be processed. enumMemberRegex requires a comma at the end.
 
                      // remove the enum name if identifiers have them as prefix
                      for (; ; ) {
