@@ -267,7 +267,7 @@ namespace Main {
             Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>\w+[\w\s]*?)\s+(?<newType>\w+)\s*;");
-            Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s+\-*/^%&()|~]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
+            Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*(?<size>\[[\w\[\]\s+\-*/^%&()|~]+?\])\s*;"); // size contains everything between the brackets and the brackets. int foo[5][7] -> size = "[5][7]"
             Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
             Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
             Regex typedefUnionRegex = new Regex(@"typedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
@@ -1089,7 +1089,7 @@ namespace Main {
                      }
                   } else if (structData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = structData.fields[i] as StructMemberArray;
-                     string memberArraySize = MakeBetterSizeString(memberArray.size);
+                     string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs);
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
@@ -1125,7 +1125,7 @@ namespace Main {
                      StructMemberArray memberArray = unionData.fields[i] as StructMemberArray;
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
-                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArray.size}];");
+                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArray.size}];"); // TODO: dont i need to process memberArray.size
                      } else {
                         // TODO: donk
                      }
@@ -1277,7 +1277,8 @@ namespace Main {
       }
 
       /// <summary>
-      /// Result is a csharp type
+      /// Result is a csharp type <br />
+      /// If <paramref name="ctype"/> doesnt contain white spaces or star and if <paramref name="ctype"/> is not a c type but a gibberish string then this function should return the same string. This feature of this function is utilized in <see cref="MakeBetterSizeString(in string, Dictionary{string, string})"/>
       /// </summary>
       static string ResolveTypedefsAndApplyFullConversion(string ctype, Dictionary<string, string> typedefs) {
          string result = ConvertWhiteSpacesToSingleSpace(ctype);
@@ -1407,23 +1408,61 @@ namespace Main {
       }
 
       /// <summary>
-      /// Make the size string a bit better. get the tokens and multiply them. int foo[5][7] -> "5][7" -> "5 * 7" <br />
+      /// Make the size string a bit better. get the tokens and multiply them. int foo[5][7] -> "[5][7]" -> "5 * 7" <br />
       /// The size string is the one you get from structMemberArrayRegex.Groups["size"]
       /// </summary>
       /// <param name="size"></param>
       /// <returns></returns>
-      static string MakeBetterSizeString(in string size) {
-         Regex wordRegex = new Regex(@"\w+");
-         MatchCollection wordsInSizeMatches = wordRegex.Matches(size);
-         StringBuilder sizeBuilder = new StringBuilder();
-         for (int i = 0; i < wordsInSizeMatches.Count; i++) {
-            Match wordMatch = wordsInSizeMatches[i];
-            sizeBuilder.Append(wordMatch.Value);
-            if (i < wordsInSizeMatches.Count - 1) {
-               sizeBuilder.Append(" * ");
+      static string MakeBetterSizeString(in string size, Dictionary<string, string> typedefs) {
+         // {
+         //    Regex getEverythingBetweenBracketsRegex = new Regex(@"\[(?<interior>.*?)\]", RegexOptions.Singleline);
+         //    MatchCollection matches = getEverythingBetweenBracketsRegex.Matches(size);
+         //    StringBuilder sizeBuilder = new StringBuilder();
+         //    for (int i = 0; i < matches.Count; i++) {
+         //       Match match = matches[i];
+         //       sizeBuilder.Append(match.Groups["interior"].Value);
+         //       if (i < matches.Count - 1) {
+         //          sizeBuilder.Append(" * ");
+         //       }
+         //    }
+         // }
+
+         // this version is written considering the case where between the brackets there might be sizeof(UserDefinedType)
+         {
+            string result = Regex.Replace(size, @"\]\s*\[", " * ").TrimStart('[').TrimEnd(']');
+            Regex wordRegex = new Regex(@"\w+");
+            for (; ; ) {
+               bool changed = false;
+               MatchCollection wordMatches = wordRegex.Matches(result);
+               foreach (Match wordMatch in wordMatches) {
+                  string word = wordMatch.Value;
+                  string resolved = ResolveTypedefsAndApplyFullConversion(word, typedefs); // assuming ResolveTypedefsAndApplyFullConversion() doesnt change the string if the string is not a ctype
+                  if (resolved != word) {
+                     result = Regex.Replace(result, @$"\b{word}\b", resolved);
+                     changed = true;
+                  }
+               }
+               if (!changed) {
+                  break;
+               }
             }
+            result = ConvertWhiteSpacesToSingleSpace(result);
+            return result;
          }
-         return sizeBuilder.ToString();
+         
+         // {
+         //    Regex wordRegex = new Regex(@"\w+");
+         //    MatchCollection wordsInSizeMatches = wordRegex.Matches(size);
+         //    StringBuilder sizeBuilder = new StringBuilder();
+         //    for (int i = 0; i < wordsInSizeMatches.Count; i++) {
+         //       Match wordMatch = wordsInSizeMatches[i];
+         //       sizeBuilder.Append(wordMatch.Value);
+         //       if (i < wordsInSizeMatches.Count - 1) {
+         //          sizeBuilder.Append(" * ");
+         //       }
+         //    }
+         //    return sizeBuilder.ToString();
+         // }
       }
 
       static string RemoveConsts(in string s, out bool hasConst) {
