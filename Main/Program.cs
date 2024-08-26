@@ -250,7 +250,7 @@ namespace Main {
          Dictionary<string /*enum name*/, EnumData> enumDatas = new Dictionary<string, EnumData>();
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          {
-            Regex functionRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // TODO: return type might be more than one word
+            Regex functionRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+),"); // type ends with either star or whitespace (instead of closing bracket do a little hack and add a comma at the end of the whole match)
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+)\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
@@ -324,12 +324,12 @@ namespace Main {
 
                   MatchCollection matches = functionRegex.Matches(file);
                   foreach (Match functionMatch in matches) {
-                     string returnType = functionMatch.Groups["returnType"].Value.Replace(" ", ""); // get rid of the spaces including this type of thing "int *" // TODO: when functionRegex allows return types of more than one word this line messes up.
+                     string returnType = functionMatch.Groups["returnType"].Value;
                      string functionName = functionMatch.Groups["functionName"].Value.Trim();
                      string functionArgs = functionMatch.Groups["args"].Value.Trim();
                      functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
                      functionArgs = RemoveConsts(functionArgs, out _);
-                     // returnType = ResolveTypedefsAndApplyBasicConversion(returnType, typedefs);
+                     returnType = returnType.Trim();
 
                      List<(IFunctionParameterData parameterData, int matchIndex)> parameterDatas = new List<(IFunctionParameterData parameterData, int matchIndex)>();
                      MatchCollection functionArgsMatches = functionArgRegex.Matches(functionArgs);
@@ -565,6 +565,7 @@ namespace Main {
                      foreach (Match structMemberMatch in structMemberMatches) {
                         string name = structMemberMatch.Groups["name"].Value;
                         string type = structMemberMatch.Groups["type"].Value;
+                        type = type.Trim();
 
                         structOrUnionMembers.Add((new StructMember() {
                            name = name,
@@ -577,6 +578,7 @@ namespace Main {
                         string name = structMemberArrayMatch.Groups["name"].Value;
                         string type = structMemberArrayMatch.Groups["type"].Value;
                         string size = structMemberArrayMatch.Groups["size"].Value;
+                        type = type.Trim();
 
                         structOrUnionMembers.Add((new StructMemberArray() {
                            name = name,
