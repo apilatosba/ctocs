@@ -1124,8 +1124,9 @@ namespace Main {
                   } else if (unionData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = unionData.fields[i] as StructMemberArray;
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
+                        string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs);
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
-                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArray.size}];"); // TODO: dont i need to process memberArray.size
+                        csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
                         // TODO: donk
                      }
