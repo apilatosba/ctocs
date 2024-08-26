@@ -201,7 +201,7 @@ namespace Main {
          Dictionary<string, string> defines = new Dictionary<string, string>();
          {
             // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
-            Regex singleLineDefineRegex = new Regex(@"^ *# *define +(?<name>\w+) +(?<value>[""']?[\w.]+[""']?) *$", RegexOptions.Multiline);
+            Regex singleLineDefineRegex = new Regex(@"^[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w.]+[""']?)[ \t]*$", RegexOptions.Multiline);
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (var kvp in headerFiles) {
                string file = kvp.Value; // file contents
