@@ -20,6 +20,7 @@ namespace Main {
          { "short int", "short" },
          { "long int", "long" },
          { "long long int", "long" },
+         { "long unsigned int", "uint" },
          { "long double", "double" },
       };
 
