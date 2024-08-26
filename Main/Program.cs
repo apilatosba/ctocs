@@ -9,11 +9,11 @@ using System.Text.RegularExpressions;
 // TODO: comments, function pointers.
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
-//       nested types
 //       bitfields
 //       variadics // https://github.com/dotnet/roslyn/blob/main/docs/compilers/CSharp/__arglist.md
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
+//       i am looking at the preprocessed file when processing structs but there are lots of gibberish additional structs so i think i should also check if that struct exist in the original header file.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -253,8 +253,8 @@ namespace Main {
             Regex functionRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+),"); // type ends with either star or whitespace (instead of closing bracket do a little hack and add a comma at the end of the whole match)
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+)\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
-            Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
-            Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
+            Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyTypedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex structMemberRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*;"); // very similar to functionArgRegex
@@ -268,11 +268,11 @@ namespace Main {
             Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>\w+[\w\s]*?)\s+(?<newType>\w+)\s*;");
             Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*\[(?<size>[\w\[\]\s+\-*/^%&()|~]+?)\]\s*;"); // size contains everything between the brackets. int foo[5][7] -> size = "5][7"
-            Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
-            Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
+            Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
+            Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
             Regex typedefUnionRegex = new Regex(@"typedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
             Regex greedyTypedefUnionRegex = new Regex(@"typedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
-            Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
+            Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
             Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+(?<name>\w+))?\s*\{(?<members>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
             Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,"); // regex reqiures a comma at the end. i will manually add a comma to the end of the membersString so it doesnt miss the last element
             Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
@@ -528,6 +528,78 @@ namespace Main {
                                           .Insert(anonymousUnionWithVariableDeclarationMatchIncomplete.Index, $"{unionNameOfAnonymousUnionVariable} {variableName};");
 
                            unionFrontier.Enqueue((unionNameOfAnonymousUnionVariable, anonymousUnionWithVariableDeclarationMatch.Groups["fields"].Value));
+                        }
+                     }
+
+                     // nested structs
+                     {
+                        for (; ; ) {
+                           Match nestedStructMatchIncomplete = structRegex.Match(fields);
+                           if (!nestedStructMatchIncomplete.Success) {
+                              break;
+                           }
+                           string nestedStructWholeStruct = GetWholeBlockUntilFollowingSemicolon(fields, nestedStructMatchIncomplete.Index);
+                           Match nestedStructMatch = greedyStructRegex.Match(nestedStructWholeStruct);
+                           Group variableNameGroup = nestedStructMatch.Groups["variableName"];
+                           string nestedStructName = nestedStructMatch.Groups["name"].Value;
+                           if (variableNameGroup.Success) {
+                              fields = fields.Remove(nestedStructMatchIncomplete.Index, nestedStructWholeStruct.Length)
+                                             .Insert(nestedStructMatchIncomplete.Index, $"{nestedStructName} {variableNameGroup.Value};");
+                           } else {
+                              fields = fields.Remove(nestedStructMatchIncomplete.Index, nestedStructWholeStruct.Length);
+                           }
+
+                           // since c# regexes are non-overlapping regexes the first nested type will be missed out but following nested types will already be in the frontier already. so no need to process them again
+                           if (!(structDatas.ContainsKey(nestedStructName) || structFrontier.Any(t => t.name == nestedStructName))) {
+                              structFrontier.Enqueue((nestedStructName, nestedStructMatch.Groups["fields"].Value));
+                           }
+                        }
+                     }
+
+                     // nested unions
+                     {
+                        for (; ; ) {
+                           Match nestedUnionMatchIncomplete = unionRegex.Match(fields);
+                           if (!nestedUnionMatchIncomplete.Success) {
+                              break;
+                           }
+                           string nestedUnionWholeUnion = GetWholeBlockUntilFollowingSemicolon(fields, nestedUnionMatchIncomplete.Index);
+                           Match nestedUnionMatch = greedyUnionRegex.Match(nestedUnionWholeUnion);
+                           Group variableNameGroup = nestedUnionMatch.Groups["variableName"];
+                           string nestedUnionName = nestedUnionMatch.Groups["name"].Value;
+                           if (variableNameGroup.Success) {
+                              fields = fields.Remove(nestedUnionMatchIncomplete.Index, nestedUnionWholeUnion.Length)
+                                             .Insert(nestedUnionMatchIncomplete.Index, $"{nestedUnionName} {variableNameGroup.Value};");
+                           } else {
+                              fields = fields.Remove(nestedUnionMatchIncomplete.Index, nestedUnionWholeUnion.Length);
+                           }
+
+                           if (!(unionDatas.ContainsKey(nestedUnionName) || unionFrontier.Any(t => t.name == nestedUnionName))) {
+                              unionFrontier.Enqueue((nestedUnionName, nestedUnionMatch.Groups["fields"].Value));
+                           }
+                        }
+                     }
+
+                     // nested enums
+                     {
+                        for (; ; ) {
+                           Match nestedEnumMatchIncomplete = enumRegex.Match(fields);
+                           if (!nestedEnumMatchIncomplete.Success) {
+                              break;
+                           }
+                           string nestedEnumWholeEnum = GetWholeBlockUntilFollowingSemicolon(fields, nestedEnumMatchIncomplete.Index);
+                           Match nestedEnumMatch = enumRegex.Match(nestedEnumWholeEnum);
+                           Group variableNameGroup = nestedEnumMatch.Groups["variableName"];
+                           string nestedEnumName = nestedEnumMatch.Groups["name"].Value;
+                           if (variableNameGroup.Success) {
+                              fields = fields.Remove(nestedEnumMatchIncomplete.Index, nestedEnumWholeEnum.Length)
+                                             .Insert(nestedEnumMatchIncomplete.Index, $"{nestedEnumName} {variableNameGroup.Value};");
+                           } else {
+                              fields = fields.Remove(nestedEnumMatchIncomplete.Index, nestedEnumWholeEnum.Length);
+                           }
+
+                           // no need to add nested enum to the frontier because enums dont have any nested types
+                           // the enum regex will capture this nested enum as well when processing enums
                         }
                      }
 
