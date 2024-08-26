@@ -14,6 +14,10 @@ using System.Text.RegularExpressions;
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
 //       i am looking at the preprocessed file when processing structs but there are lots of gibberish additional structs so i think i should also check if that struct exist in the original header file.
+//          not so quickly but realized that this is not possible best thing to do is to keep the gibberish. why not possible because a struct might be defined using a macro. no way i can extract that struct info
+//          but somethings need to be done. in those gibberish structs their fields might contain a type that is not defined resulting in an csOutput that doesnt compile.
+//          so i think best i can do is to check if a struct that is to be written to csOutput contains any type that is not to be written to csOutput. if so then dont write that struct to csOutput.
+//          and of course it need to be recursive.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -1430,7 +1434,9 @@ namespace Main {
 
          // this version is written considering the case where between the brackets there might be sizeof(UserDefinedType)
          {
-            string result = Regex.Replace(size, @"\]\s*\[", " * ").TrimStart('[').TrimEnd(']');
+            string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
+            result = result.Insert(0, "(");
+            result += ')';
             Regex wordRegex = new Regex(@"\w+");
             for (; ; ) {
                bool changed = false;
