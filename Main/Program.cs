@@ -12,11 +12,6 @@ using System.Text.RegularExpressions;
 //       bitfields
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
-//       i am looking at the preprocessed file when processing structs but there are lots of gibberish additional structs so i think i should also check if that struct exist in the original header file.
-//          not so quickly but realized that this is not possible best thing to do is to keep the gibberish. why not possible because a struct might be defined using a macro. no way i can extract that struct info
-//          but somethings need to be done. in those gibberish structs their fields might contain a type that is not defined resulting in an csOutput that doesnt compile.
-//          so i think best i can do is to check if a struct that is to be written to csOutput contains any type that is not to be written to csOutput. if so then dont write that struct to csOutput.
-//          and of course it need to be recursive.
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
 namespace Main {
    class Program {
@@ -879,6 +874,134 @@ namespace Main {
             }
          }
 
+         // remove structs that contain member with an unknown type
+         // after resolving typedefs the .type will end up either a builtin csharp type or a user defined type. user defined type might be queried from the dictionaries. and i created a set for builtin ones
+         {
+            for (; ; ) {
+               bool structRemoved = false;
+               foreach (var kvp in structDatas) {
+                  StructData structData = kvp.Value;
+                  string structName = kvp.Key;
+
+                  foreach (IStructMember structMember in structData.fields) {
+                     string type;
+                     if (structMember is StructMember) {
+                        type = (structMember as StructMember).type;
+                     } else if (structMember is StructMemberArray) {
+                        type = (structMember as StructMemberArray).type;
+                     } else {
+                        throw new UnreachableException();
+                     }
+                     type = RemoveStarsFromEnd(type);
+
+                     // do that type exist?
+                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                        // unknown type found. so i should remove this struct otherwise generated c# wont compiler
+                        structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
+                        structRemoved = true;
+                        break;
+                     }
+                  }
+
+                  // need to iterate over the structDatas all over again because the removed struct might wrongly detected as known type in the already scanned structs.
+                  if (structRemoved) {
+                     break;
+                  }
+               }
+
+               if (!structRemoved) {
+                  break;
+               }
+            }
+         }
+
+         // remove unions that contain member with unknown type
+         {
+            for (; ; ) {
+               bool unionRemoved = false;
+               foreach (var kvp in unionDatas) {
+                  StructData unionData = kvp.Value;
+                  string unionName = kvp.Key;
+
+                  foreach (IStructMember unionMember in unionData.fields) {
+                     string type;
+                     if (unionMember is StructMember) {
+                        type = (unionMember as StructMember).type;
+                     } else if (unionMember is StructMemberArray) {
+                        type = (unionMember as StructMemberArray).type;
+                     } else {
+                        throw new UnreachableException();
+                     }
+                     type = RemoveStarsFromEnd(type);
+
+                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                        unionDatas.Remove(unionName);
+                        unionRemoved = true;
+                        break;
+                     }
+                  }
+
+                  if (unionRemoved) {
+                     break;
+                  }
+               }
+
+               if (!unionRemoved) {
+                  break;
+               }
+            }
+         }
+
+         // remove functions that contain parameters with unknown type
+         {
+            for (; ; ) {
+               bool functionRemoved = false;
+               foreach (var kvp in functionDatas) {
+                  FunctionData functionData = kvp.Value;
+                  string functionName = kvp.Key;
+
+                  // return type
+                  {
+                     string returnType = RemoveStarsFromEnd(functionData.returnType);
+                     if (!structDatas.ContainsKey(returnType) && !unionDatas.ContainsKey(returnType) && !enumDatas.ContainsKey(returnType) && !TypeInfo.builtinCSharpTypes.Contains(returnType)) {
+                        functionDatas.Remove(functionName);
+                        functionRemoved = true;
+                        break;
+                     }
+                  }
+
+                  // parameters
+                  {
+                     foreach (IFunctionParameterData parameterData in functionData.parameters) {
+                        string type;
+                        if (parameterData is FunctionParameterData) {
+                           type = (parameterData as FunctionParameterData).type;
+                        } else if (parameterData is FunctionParameterArrayData) {
+                           type = (parameterData as FunctionParameterArrayData).type;
+                        } else {
+                           throw new UnreachableException();
+                        }
+                        type = RemoveStarsFromEnd(type);
+
+                        if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                           functionDatas.Remove(functionName);
+                           functionRemoved = true;
+                           break;
+                        }
+                     }
+
+                     if (functionRemoved) {
+                        break;
+                     }
+                  }
+               }
+
+               if (!functionRemoved) {
+                  break;
+               }
+            }
+         }
+
          string libName = Regex.Match(soFile, @".*?(lib)?(?<name>\w+)[\w.]*?\.so").Groups["name"].Value;
          StringBuilder csOutput = new StringBuilder();
          csOutput.AppendLine($"/**");
@@ -1458,6 +1581,8 @@ namespace Main {
          // }
 
          // this version is written considering the case where between the brackets there might be sizeof(UserDefinedType)
+         // FIXME: there is a problem if sizeof(_type_) if _type_ is a user defined type then it wont compile on c# but if _type_ is a builtin type then it is no problem.
+         //        ClangSharp evaluates the result of sizeof(UserDefinedType) and writes the result.
          {
             string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
             result = result.Insert(0, "(");
