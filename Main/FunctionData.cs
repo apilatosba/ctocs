@@ -5,5 +5,6 @@ namespace Main {
       public string returnType;
       public string name;
       public List<IFunctionParameterData> parameters;
+      public bool isVariadic;
    }
 }

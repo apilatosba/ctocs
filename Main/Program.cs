@@ -10,7 +10,6 @@ using System.Text.RegularExpressions;
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       bitfields
-//       variadics // https://github.com/dotnet/roslyn/blob/main/docs/compilers/CSharp/__arglist.md
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
 //       i am looking at the preprocessed file when processing structs but there are lots of gibberish additional structs so i think i should also check if that struct exist in the original header file.
@@ -18,6 +17,7 @@ using System.Text.RegularExpressions;
 //          but somethings need to be done. in those gibberish structs their fields might contain a type that is not defined resulting in an csOutput that doesnt compile.
 //          so i think best i can do is to check if a struct that is to be written to csOutput contains any type that is not to be written to csOutput. if so then dont write that struct to csOutput.
 //          and of course it need to be recursive.
+//       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -254,7 +254,7 @@ namespace Main {
          Dictionary<string /*enum name*/, EnumData> enumDatas = new Dictionary<string, EnumData>();
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          {
-            Regex functionRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex functionRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+),"); // type ends with either star or whitespace (instead of closing bracket do a little hack and add a comma at the end of the whole match)
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<parameterName>\w+)\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
@@ -331,6 +331,7 @@ namespace Main {
                      string returnType = functionMatch.Groups["returnType"].Value;
                      string functionName = functionMatch.Groups["functionName"].Value.Trim();
                      string functionArgs = functionMatch.Groups["args"].Value.Trim();
+                     bool isVariadic = functionMatch.Groups["variadicPart"].Success;
                      functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
                      functionArgs = RemoveConsts(functionArgs, out _);
                      returnType = returnType.Trim();
@@ -367,6 +368,7 @@ namespace Main {
                         returnType = returnType,
                         name = functionName,
                         parameters = parameterDatas.Select(t => t.parameterData).ToList(),
+                        isVariadic = isVariadic
                      });
                   }
                }
@@ -1035,8 +1037,31 @@ namespace Main {
                            functionArgs.Append(", ");
                         }
                      }
+
+                     // NOTE: apparently calling a function with __arglist is not supported in c#.
+                     //       instead what you need to do is create a new dllimport entry for each different signature of the function.
+                     //       lets give a simple example. consider printf(const char*, ...)
+                     //
+                     //          [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = "printf")]
+                     //          public static extern int printf(String format, __arglist);
+                     //
+                     //       lets say i want to call it like so:       
+                     //          printf("%i", 5);
+                     //
+                     //       then you need to create a new dllimport entry for this signature like following:
+                     //
+                     //          [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = "printf")]
+                     //          public static extern int printf(String format, int arg1);
+                     //
+                     //       please note here that CallingConvention = CallingConvention.Cdecl is necessary
+                     //
+                     //       but if instead calling a function with __arglist was supported then you could call it like so:
+                     //          printf("%i", __arglist(5));
+                     //
+                     //       and you wouldnt need to create dllimport entries for each signature.
+                     //       i am still clueless since __arglist is undocumented. maybe there is a way to call variadic functions Clueless
                      csOutput.AppendLine($"\t\t[DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{entry.name}\")]");
-                     csOutput.AppendLine($"\t\tpublic static extern {functionData.returnType} {functionData.name}({functionArgs});");
+                     csOutput.AppendLine($"\t\tpublic static extern {functionData.returnType} {functionData.name}({functionArgs}{(functionData.isVariadic ? ", __arglist" : "")});");
                      functionsInNative.Add(functionData);
                   }
                }
