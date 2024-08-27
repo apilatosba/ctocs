@@ -9,10 +9,11 @@ using System.Text.RegularExpressions;
 // TODO: comments, function pointers.
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
-//       bitfields
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
+//       add more progress texts
+//       if there is any "const int FOO = ...;" declarations process them too.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -256,7 +257,7 @@ namespace Main {
             Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyTypedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
-            Regex structMemberRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*;"); // very similar to functionArgRegex
+            Regex structMemberRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*(?:\s*:\s*(?<bitfieldValue>\w+))?\s*;"); // very similar to functionArgRegex
             Regex anonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
             Regex anonymousUnionRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs. use GetWholeStruct() function
@@ -638,11 +639,13 @@ namespace Main {
                      foreach (Match structMemberMatch in structMemberMatches) {
                         string name = structMemberMatch.Groups["name"].Value;
                         string type = structMemberMatch.Groups["type"].Value;
+                        bool isBitfield = structMemberMatch.Groups["bitfieldValue"].Success;
                         type = type.Trim();
 
                         structOrUnionMembers.Add((new StructMember() {
                            name = name,
-                           type = type
+                           type = type,
+                           isBitfield = isBitfield
                         }, structMemberMatch.Index));
                      }
 
@@ -869,6 +872,41 @@ namespace Main {
                      } else {
                         throw new UnreachableException();
                      }
+                  }
+               }
+            }
+         }
+
+         // bitfields with no variable declaration shenanigans
+         // lidl explanation. since i added bitfield support to structMemberRegex this type of thing may happen:
+         //
+         //    unsigned int : 0;
+         //
+         // here "unsigned" gets registered as .type and "int" get registered as .name which is wrong. this only happens if the type is more than one word.
+         // thats what i am checking here. if such bitfield exist remove it. dont process it.
+         //
+         // NOTE: as far as i understand c standard doesnt force bitfields to be packed. it suggest that if there is enough space then the next bitfield should packed into adjacent bits
+         //       what i am doing is i keep every bitfield in an integer. no packing whatsoever.
+         //       and i think this breaks the interoperability with c code. i think if a function takes a bitfield struct then the c code will expect the bitfields to be packed but they are not.
+         //       and as far as i understand how the bitfield is packed and kept in the memory is implementation dependent so i dont know if there is any way to make it compatible with c code.
+         //       and also who cares. no one uses bitfields. no one even knows that they exist Clueless.
+         {
+            foreach (var collection in new Dictionary<string, StructData>.ValueCollection[] { structDatas.Values, unionDatas.Values }) {
+               foreach (StructData structData in collection) {
+                  List<StructMember> structMembersToRemove = new List<StructMember>();
+                  foreach (IStructMember member in structData.fields) {
+                     if (member is StructMember structMember) {
+                        if (structMember.isBitfield) {
+                           if (structMember.name == "int" || structMember.name == "short" || structMember.name == "long" || // int short long only valid bitfield types
+                                 structMember.type == "signed" || structMember.type == "unsigned") { // not necessary but causes no harm so we keep it
+                              structMembersToRemove.Add(structMember);
+                           }
+                        }
+                     }
+                  }
+
+                  foreach (StructMember structMember in structMembersToRemove) {
+                     structData.fields.Remove(structMember);
                   }
                }
             }
@@ -1583,6 +1621,11 @@ namespace Main {
          // this version is written considering the case where between the brackets there might be sizeof(UserDefinedType)
          // FIXME: there is a problem if sizeof(_type_) if _type_ is a user defined type then it wont compile on c# but if _type_ is a builtin type then it is no problem.
          //        ClangSharp evaluates the result of sizeof(UserDefinedType) and writes the result.
+         //        solution:
+         //          create a dotnet project copy the structs query the sizeof the struct write it to standard output.
+         //          and then write those struct name size information to a Dictionary<string, int>
+         //        NOTE: if i do the thing above then it is also going to be easy to extract out anonymous unions
+         //        TODO: do the solution above
          {
             string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
             result = result.Insert(0, "(");
