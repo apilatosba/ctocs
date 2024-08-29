@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 
-// TODO: comments, function pointers.
+// TODO: comments
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
@@ -22,6 +22,7 @@ using System.Text.RegularExpressions;
 //       if a variable name is a keyword in c# then find a valid variable name for it. you can use iota to get a unique name.
 //       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
 //       apparently function declarations in c allows function name to be enclosed with brackets. i should support this.
+//       Action and Func wrappers for function that takes a function pointer as an argument.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -50,6 +51,11 @@ namespace Main {
                soFile = args[i + 1];
                i++;
             } else if (args[i] == "hfiles") {
+               if (i + 1 >= args.Length) {
+                  Console.WriteLine("Missing .h files");
+                  Environment.Exit(1);
+               }
+               
                for (i++; i < args.Length; i++) {
                   if (args[i] == ",,") {
                      break;
@@ -61,6 +67,11 @@ namespace Main {
                   }
                }
             } else if (args[i] == "phfiles") {
+               if (i + 1 >= args.Length) {
+                  Console.WriteLine("Missing .h files");
+                  Environment.Exit(1);
+               }
+               
                for (i++; i < args.Length; i++) {
                   if (args[i] == ",,") {
                      break;
@@ -260,10 +271,14 @@ namespace Main {
          // typedef struct Bullet Bullet -> typedefs["Bullet"] = "struct Bullet"
          Dictionary<string /*new type*/, string /*what new type defined as*/> typedefs = new Dictionary<string, string>();
          Dictionary<string /*enum name*/, EnumData> enumDatas = new Dictionary<string, EnumData>();
+         // i use this to write the enum members as "const int ... = ..." because syntax wise thats what equals to c. but doing it this way (by storing them in a seperate collection) is no good. there are lots multiple data around here
+         //    instead what i should do is to defer the removal of prefix and thats it.
+         Dictionary<string /*enum name*/, EnumData> enumDatasButPrefixesAreNotRemoved = new Dictionary<string, EnumData>();
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          {
             // TODO: handle typedef. if there is typedef keyword the ending has to be with semicolon { not allowed
             //       what is this? i forgor. what is typedefd function? omegaluliguess
+            //       maybe dont allow typedef here. and create another regex for typedefd functions. typedefd functions i think used like function pointers in c.
             Regex functionRegex = new Regex(@"(?:(?<typedef>typedef)\s+)?(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:\s+(?<parameterName>\w+))?\s*,"); // parameter name optional.
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:\s+(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
@@ -343,12 +358,17 @@ namespace Main {
 
                   MatchCollection matches = functionRegex.Matches(file);
                   foreach (Match functionMatch in matches) {
+                     Group typedefGroup = functionMatch.Groups["typedef"];
                      string returnType = functionMatch.Groups["returnType"].Value.Trim();
                      string functionName = functionMatch.Groups["functionName"].Value.Trim();
                      string functionArgs = functionMatch.Groups["args"].Value.Trim();
                      bool isVariadic = functionMatch.Groups["variadicPart"].Success;
 
-                     if (!exposedFunctionsInSOFile.Contains(functionName)) { // TODO: since i do the function check early the functionDatas dictionary only will contaion the functions that are to be written to csOutput. so you have to change the rest of the code accordingly.
+                     if (typedefGroup.Success) {
+                        continue;
+                     }
+
+                     if (!exposedFunctionsInSOFile.Contains(functionName)) {
                         continue;
                      }
 
@@ -381,13 +401,6 @@ namespace Main {
 
                // function pointers
                {
-                  // TODO: this should be added to typedefs somehow. because a new type might defined using a function pointer
-                  //
-                  //          typedef void (*fn_ptr)();
-                  //          typedef fn_ptr newType;
-                  //
-                  //       here if i dont add fun_ptr then i will miss the newType. and my program will delete everything that includes newType type.
-                  //       a quick idea. add this to already existing typedefs dictionary but keep the value to be null. and ResolveTypedefsAndApplyFullConversion() function take this into consideration
                   if (showProgress) {
                      Console.WriteLine($"Processing typedef function pointers [{path}]...");
                   }
@@ -798,6 +811,11 @@ namespace Main {
                      membersString = membersString.Trim();
                      membersString += ","; // add a comma to the end so the last member can be processed. enumMemberRegex requires a comma at the end.
 
+                     enumDatasButPrefixesAreNotRemoved.TryAdd(enumName, new EnumData() {
+                        name = enumName,
+                        members = ExtractOutEnumMembers(membersString, enumMemberRegex)
+                     });
+
                      // remove the enum name if identifiers have them as prefix
                      for (; ; ) {
                         MatchCollection wordMatches = wordRegex.Matches(membersString);
@@ -822,26 +840,9 @@ namespace Main {
                         }
                      }
 
-                     List<EnumMember> enumMembers = new List<EnumMember>();
-                     MatchCollection enumMemberMatches = enumMemberRegex.Matches(membersString);
-                     foreach (Match match in enumMemberMatches) {
-                        string identifier = match.Groups["identifier"].Value;
-                        string value;
-                        if (match.Groups["value"].Success) {
-                           value = match.Groups["value"].Value;
-                        } else {
-                           value = null;
-                        }
-
-                        enumMembers.Add(new EnumMember() {
-                           identifier = identifier,
-                           value = value
-                        });
-                     }
-
                      enumDatas.TryAdd(enumName, new EnumData() {
                         name = enumName,
-                        members = enumMembers
+                        members = ExtractOutEnumMembers(membersString, enumMemberRegex)
                      });
                   }
 
@@ -871,7 +872,7 @@ namespace Main {
                                  if (enumMembers.Count == 0) {
                                     value = "0";
                                  } else {
-                                    value = $"{enumMembers[enumMembers.Count - 1].identifier} + 1";
+                                    value = $"({enumMembers[enumMembers.Count - 1].identifier}) + 1";
                                  }
                               }
 
@@ -972,7 +973,7 @@ namespace Main {
          //
          // NOTE: as far as i understand c standard doesnt force bitfields to be packed. it suggest that if there is enough space then the next bitfield should packed into adjacent bits
          //       what i am doing is i keep every bitfield in an integer. no packing whatsoever.
-         //       and i think this breaks the interoperability with c code. i think if a function takes a bitfield struct then the c code will expect the bitfields to be packed but they are not.
+         //       and i think this breaks the interoperability with c code. i think if a function takes a bitfield struct then the c code, depending on the compiler, will expect the bitfields to be packed but they are not.
          //       and as far as i understand how the bitfield is packed and kept in the memory is implementation dependent so i dont know if there is any way to make it compatible with c code.
          //       and also who cares. no one uses bitfields. no one even knows that they exist Clueless.
          {
@@ -1018,7 +1019,7 @@ namespace Main {
                      type = RemoveStarsFromEnd(type);
 
                      // do that type exist?
-                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) { // TODO: this todo is linked to another todo. function pointers
+                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
                         // unknown type found. so i should remove this struct otherwise generated c# wont compiler
                         structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
                         structRemoved = true;
@@ -1057,7 +1058,7 @@ namespace Main {
                      }
                      type = RemoveStarsFromEnd(type);
 
-                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                     if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
                         unionDatas.Remove(unionName);
                         unionRemoved = true;
                         break;
@@ -1086,7 +1087,7 @@ namespace Main {
                   // return type
                   {
                      string returnType = RemoveStarsFromEnd(functionData.returnType);
-                     if (!structDatas.ContainsKey(returnType) && !unionDatas.ContainsKey(returnType) && !enumDatas.ContainsKey(returnType) && !TypeInfo.builtinCSharpTypes.Contains(returnType)) {
+                     if (!structDatas.ContainsKey(returnType) && !unionDatas.ContainsKey(returnType) && !enumDatas.ContainsKey(returnType) && !functionPointerDatas.ContainsKey(returnType) && !TypeInfo.builtinCSharpTypes.Contains(returnType)) {
                         functionDatas.Remove(functionName);
                         functionRemoved = true;
                         break;
@@ -1106,7 +1107,7 @@ namespace Main {
                         }
                         type = RemoveStarsFromEnd(type);
 
-                        if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                        if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
                            functionDatas.Remove(functionName);
                            functionRemoved = true;
                            break;
@@ -1120,6 +1121,56 @@ namespace Main {
                }
 
                if (!functionRemoved) {
+                  break;
+               }
+            }
+         }
+
+         // remove delegates that contain parameters or return types with unknown type
+         {
+            for (; ; ) {
+               bool functionPointerRemoved = false;
+               foreach (var kvp in functionPointerDatas) {
+                  FunctionPointerData pointerData = kvp.Value;
+                  string functionPointerName = kvp.Key;
+
+                  // return type
+                  {
+                     string returnType = RemoveStarsFromEnd(pointerData.returnType);
+                     if (!structDatas.ContainsKey(returnType) && !unionDatas.ContainsKey(returnType) && !enumDatas.ContainsKey(returnType) && !functionPointerDatas.ContainsKey(returnType) && !TypeInfo.builtinCSharpTypes.Contains(returnType)) {
+                        functionPointerDatas.Remove(functionPointerName);
+                        functionPointerRemoved = true;
+                        break;
+                     }
+                  }
+
+                  // parameters
+                  {
+                     foreach (IFunctionParameterData parameterData in pointerData.parameters) {
+                        string type;
+                        if (parameterData is FunctionParameterData) {
+                           type = (parameterData as FunctionParameterData).type;
+                        } else if (parameterData is FunctionParameterArrayData) {
+                           type = (parameterData as FunctionParameterArrayData).type;
+                        } else {
+                           throw new UnreachableException();
+                        }
+                        type = RemoveStarsFromEnd(type);
+
+                        if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                           functionPointerDatas.Remove(functionPointerName);
+                           functionPointerRemoved = true;
+                           break;
+                        }
+                     }
+
+                     if (functionPointerRemoved) {
+                        break;
+                     }
+                  }
+               }
+
+               if (!functionPointerRemoved) {
                   break;
                }
             }
@@ -1148,7 +1199,7 @@ namespace Main {
 
                if (functionPointerData.amountOfStars == 1) {
                   csOutput.AppendLine("\t[UnmanagedFunctionPointer(CallingConvention.Cdecl)]");
-                  csOutput.AppendLine($"\tpublic delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? ", __arglist" : "")});");
+                  csOutput.AppendLine($"\tpublic unsafe delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? ", __arglist" : "")});");
                } else {
                   // TODO: idk if above implementation would work for star amount other than 1. test it if it works then you can remove the if check.
                   //       maybe if it comes from a function parameter then i can declare the delegate as above and put the necessary stars in the function parameter. idk if it will work tho. need testing.
@@ -1258,6 +1309,26 @@ namespace Main {
             }
          }
 
+         // enums extracted out
+         {
+            if (showProgress) {
+               Console.WriteLine($"Preparing enums to be written(extracted out)...");
+            }
+
+            csOutput.AppendLine();
+            csOutput.AppendLine($"\t\t// ENUMS (extracted out)");
+            foreach (EnumData enumData in enumDatasButPrefixesAreNotRemoved.Values) {
+               if (enumData.name.StartsWith("__ANONYMOUS__") && enumData.name.EndsWith("_ENUM")) {
+                  continue;
+               }
+
+               List<EnumMember> enumMembersWithExplicitValues = GetEnumMembersWithExplicitValues(enumData.members);
+               foreach (EnumMember enumMember in enumMembersWithExplicitValues) {
+                  csOutput.AppendLine($"\t\tpublic const int {enumMember.identifier} = {enumMember.value};");
+               }
+            }
+         }
+
          // anonymous enums
          {
             if (showProgress) {
@@ -1273,7 +1344,6 @@ namespace Main {
             }
          }
 
-         List<FunctionData> functionsInNative = new List<FunctionData>(); // TODO: i dont think this is needed anymore since functionDatas only contain functions that are written to native class. check this anyway then remove this list
          // functions
          {
             if (showProgress) {
@@ -1312,7 +1382,6 @@ namespace Main {
                //       i am still clueless since __arglist is undocumented. maybe there is a way to call variadic functions Clueless
                csOutput.AppendLine($"\t\t[DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = \"{functionName}\")]");
                csOutput.AppendLine($"\t\tpublic static extern {functionData.returnType} {functionData.name}({functionArgs}{(functionData.isVariadic ? ", __arglist" : "")});");
-               functionsInNative.Add(functionData);
             }
          }
 
@@ -1445,7 +1514,7 @@ namespace Main {
 
             // function parameters with single star pointers and single dimension arrays
             {
-               foreach (FunctionData functionData in functionsInNative) {
+               foreach (FunctionData functionData in functionDatas.Values) {
                   List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
                   List<int> indicesOfParametersToBeModified = new List<int>();
                   for (int i = 0; i < functionData.parameters.Count; i++) {
@@ -1917,6 +1986,55 @@ namespace Main {
          }
 
          return result;
+      }
+
+      static List<EnumMember> GetEnumMembersWithExplicitValues(List<EnumMember> enumMembers) {
+         List<EnumMember> result = new List<EnumMember>();
+         for (int i = 0; i < enumMembers.Count; i++) {
+            EnumMember enumMember = enumMembers[i];
+            EnumMember newEnumMember = new EnumMember();
+
+            if (enumMember.value == null) {
+               if (i == 0) {
+                  newEnumMember = new EnumMember() {
+                     identifier = enumMember.identifier,
+                     value = "0"
+                  };
+               } else {
+                  newEnumMember = new EnumMember() {
+                     identifier = enumMember.identifier,
+                     value = $"({enumMembers[i - 1].identifier}) + 1"
+                  };
+               }
+            } else {
+               newEnumMember = enumMember.Copy();
+            }
+
+            result.Add(newEnumMember);
+         }
+
+         return result;
+      }
+
+      static List<EnumMember> ExtractOutEnumMembers(in string membersString, in Regex enumMemberRegex) {
+         List<EnumMember> enumMembers = new List<EnumMember>();
+         MatchCollection enumMemberMatches = enumMemberRegex.Matches(membersString);
+         foreach (Match match in enumMemberMatches) {
+            string identifier = match.Groups["identifier"].Value;
+            string value;
+            if (match.Groups["value"].Success) {
+               value = match.Groups["value"].Value;
+            } else {
+               value = null;
+            }
+
+            enumMembers.Add(new EnumMember() {
+               identifier = identifier,
+               value = value
+            });
+         }
+
+         return enumMembers;
       }
    }
 }
