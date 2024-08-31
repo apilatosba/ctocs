@@ -13,9 +13,6 @@ using System.Text.RegularExpressions;
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
 //       add more progress texts
-//       i totally forgot about comma operator.
-//          float x, y;
-//          in this case i miss both x and y.
 //       if a variable name is a keyword in c# then find a valid variable name for it. you can use iota to get a unique name.
 //       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
 //       apparently function declarations in c allows function name to be enclosed with brackets. i should support this.
@@ -40,7 +37,6 @@ using System.Text.RegularExpressions;
 //          in the structs dont use enum type but use int.
 //          add an explicit cast. this option is not trivial
 //       todos from raylib
-//          comma operator.
 //          va_list
 //          parameter names that are keywords in c#
 //          i cant create safe wrapper around variadic functions. so when creating a safe wrapper check if the function is variadic then skip it i guess.
@@ -339,6 +335,9 @@ namespace Main {
             // apparently you can put the keywords in any order. const int. int const. const static int.
             // i only support the ones that start with const keyword and between const and type these words are okay (static|volatile|register).
             Regex constVariableRegex = new Regex(@"const\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
+            // i did a little hack in the arrayPart. it was optional at first but regex has to capture it so i know what variable group it belongs to. if regex doesnt capture it indices messes up and i no further know what capture belongs to what.
+            //    so it is required but it may match empty string which is not an array at all. so you need to check if arrayPart is empty to find out if it actually matched
+            Regex variableDeclarationWithCommaOperator = new Regex(@"(?<type>\w+[\w\s]*?)\s*(?<variable>(?<stars>[\s*]*?)(?<=[\s*,])(?<variableName>\w+)\s*(?<arrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|()))\s*,)+(?<lastVariable>(?<lastVariableStars>[\s*]*?)(?<=[\s*,])(?<lastVariableVariableName>\w+)\s*(?<lastVariableArrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])?)\s*;"); // at least one comma operated value is required
             foreach (var kvp in preprocessedHeaderFiles) {
                string file = kvp.Value; // file contents
                string path = kvp.Key;
@@ -347,6 +346,46 @@ namespace Main {
                Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
                Queue<(string enumName, string members)> enumFrontier = new Queue<(string enumName, string members)>();
                Queue<(string name, string returnType, string args, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName /*null if there isnt any*/)> functionPointerFrontier = new Queue<(string name, string returnType, string args, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName)>();
+
+               // MODIFYING THE FILE STRING but not modifying the value inside the preprocessedHeaderFiles dictionary. surely this is not gonna break anything Clueless
+               // comma operator. converting the normal declaration form.
+               // NOTE: since this part modifies the "file" string which is usually a pretty big string, modifying it is costly.
+               //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
+               //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
+               {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing comma operator [{path}]...");
+                  }
+                  
+                  for (; ; ) {
+                     Match match = variableDeclarationWithCommaOperator.Match(file);
+                     if (!match.Success) {
+                        break;
+                     }
+
+                     string type = match.Groups["type"].Value;
+                     int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
+                     Debug.Assert(totalVariableCount >= 2);
+                     
+                     string[] starsArray = new string[totalVariableCount];
+                     string[] variableNameArray = new string[totalVariableCount];
+                     string[] arrayPartArray = new string[totalVariableCount];
+                     {
+                        for (int i = 0; i < totalVariableCount - 1; i++) {
+                           starsArray[i] = match.Groups["stars"].Captures[i].Value;
+                           variableNameArray[i] = match.Groups["variableName"].Captures[i].Value;
+                           arrayPartArray[i] = match.Groups["arrayPart"].Captures[i].Value;
+                        }
+
+                        starsArray[totalVariableCount - 1] = match.Groups["lastVariableStars"].Value;
+                        variableNameArray[totalVariableCount - 1] = match.Groups["lastVariableVariableName"].Value;
+                        arrayPartArray[totalVariableCount - 1] = match.Groups["lastVariableArrayPart"].Value;
+                     }
+
+                     file = file.Remove(match.Index, match.Length)
+                              .Insert(match.Index, GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(type, starsArray, variableNameArray, arrayPartArray));
+                  }
+               }
 
                // typedefs
                {
@@ -2312,6 +2351,19 @@ namespace Main {
          }
 
          return result;
+      }
+
+      /// <summary>
+      /// The returned string contains multiple variable declarations but they are still in C syntax
+      /// </summary>
+      static string GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(string type, string[] stars, string[] variableName, string[] arrayPart) {
+         StringBuilder result = new StringBuilder();
+         Debug.Assert(stars.Length == variableName.Length && variableName.Length == arrayPart.Length);
+         for (int i = 0; i < stars.Length; i++) {
+            result.AppendLine($"{type}{stars[i]} {variableName[i]}{arrayPart[i]};");
+         }
+
+         return result.ToString();
       }
    }
 }
