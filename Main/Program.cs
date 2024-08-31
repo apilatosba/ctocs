@@ -12,7 +12,6 @@ using System.Text.RegularExpressions;
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
-//       add more progress texts
 //       if a variable name is a keyword in c# then find a valid variable name for it. you can use iota to get a unique name.
 //       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
 //       apparently function declarations in c allows function name to be enclosed with brackets. i should support this.
@@ -36,6 +35,8 @@ using System.Text.RegularExpressions;
 //          so a few options there are
 //          in the structs dont use enum type but use int.
 //          add an explicit cast. this option is not trivial
+//          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
+//          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
 //       todos from raylib
 //          va_list
 //          parameter names that are keywords in c#
@@ -353,6 +354,8 @@ namespace Main {
                //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
                //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
                //       while processing raylib 12 iterations of this for loop takes about idk 6 seconds or something which is a lot.
+               // TODO: you dummy dum dumm. if declare consts you also have to provide value to them so this regex wonth even match global const variables.
+               //       move this to struct fields and create abother regex for global const variables.
                {
                   if (showProgress) {
                      Console.WriteLine($"Processing comma operator [{path}]...");
@@ -493,7 +496,7 @@ namespace Main {
                // function pointers
                {
                   if (showProgress) {
-                     Console.WriteLine($"Processing typedef function pointers [{path}]...");
+                     Console.WriteLine($"Processing function pointers [{path}]...");
                   }
 
                   MatchCollection matches = typedefFunctionPointerRegex.Matches(file);
@@ -984,8 +987,16 @@ namespace Main {
 
          // resolve typedefs and convert to csharp equivalents excluding arrays. you still need to process .arrayPart or .size
          {
+            if (showProgress) {
+               Console.WriteLine("Resolving typedefs and converting types to C# equivalents...");
+            }
+            
             // functions
             {
+               if (showProgress) {
+                  Console.WriteLine("\tFunctions...");
+               }
+               
                foreach (FunctionData functionData in functionDatas.Values) {
                   functionData.returnType = ResolveTypedefsAndApplyFullConversion(functionData.returnType, typedefs);
                   for (int i = 0; i < functionData.parameters.Count; i++) {
@@ -1004,6 +1015,10 @@ namespace Main {
 
             // function pointers
             {
+               if (showProgress) {
+                  Console.WriteLine("\tFunction pointers...");
+               }
+               
                foreach (FunctionPointerData data in functionPointerDatas.Values) {
                   data.returnType = ResolveTypedefsAndApplyFullConversion(data.returnType, typedefs);
                   for (int i = 0; i < data.parameters.Count; i++) {
@@ -1022,6 +1037,10 @@ namespace Main {
 
             // structs
             {
+               if (showProgress) {
+                  Console.WriteLine("\tStructs...");
+               }
+               
                foreach (StructData structData in structDatas.Values) {
                   foreach (IStructMember member in structData.fields) {
                      if (member is StructMember) {
@@ -1039,6 +1058,10 @@ namespace Main {
 
             // unions
             {
+               if (showProgress) {
+                  Console.WriteLine("\tUnions...");
+               }
+               
                foreach (StructData unionData in unionDatas.Values) {
                   foreach (IStructMember member in unionData.fields) {
                      if (member is StructMember) {
@@ -1056,6 +1079,10 @@ namespace Main {
 
             // global const variables
             {
+               if (showProgress) {
+                  Console.WriteLine("\tGlobal const variables...");
+               }
+               
                foreach (GlobalConstVariableData data in globalConstVariableDatas.Values) {
                   data.type = ResolveTypedefsAndApplyFullConversion(data.type, typedefs);
                   // TODO: data.values and data.arrayPart may contain types. e.g. sizeof(UserDefinedType)
@@ -1078,6 +1105,10 @@ namespace Main {
          //       and as far as i understand how the bitfield is packed and kept in the memory is implementation dependent so i dont know if there is any way to make it compatible with c code.
          //       and also who cares. no one uses bitfields. no one even knows that they exist Clueless.
          {
+            if (showProgress) {
+               Console.WriteLine("Bitfield shenanigans...");
+            }
+            
             foreach (var collection in new Dictionary<string, StructData>.ValueCollection[] { structDatas.Values, unionDatas.Values }) {
                foreach (StructData structData in collection) {
                   List<StructMember> structMembersToRemove = new List<StructMember>();
@@ -1099,9 +1130,17 @@ namespace Main {
             }
          }
 
-         // remove structs that contain member with an unknown type
          // after resolving typedefs the .type will end up either a builtin csharp type or a user defined type. user defined type might be queried from the dictionaries. and i created a set for builtin ones
+         if (showProgress) {
+            Console.WriteLine("Removing structs/unions/etc that contain unknown types...");
+         }
+
+         // remove structs that contain member with an unknown type
          {
+            if (showProgress) {
+               Console.WriteLine("\tStructs...");
+            }
+            
             for (; ; ) {
                bool structRemoved = false;
                foreach (var kvp in structDatas) {
@@ -1142,6 +1181,10 @@ namespace Main {
 
          // remove unions that contain member with unknown type
          {
+            if (showProgress) {
+               Console.WriteLine("\tUnions...");
+            }
+            
             for (; ; ) {
                bool unionRemoved = false;
                foreach (var kvp in unionDatas) {
@@ -1179,6 +1222,10 @@ namespace Main {
 
          // remove functions that contain parameters with unknown type
          {
+            if (showProgress) {
+               Console.WriteLine("\tFunctions...");
+            }
+            
             for (; ; ) {
                bool functionRemoved = false;
                foreach (var kvp in functionDatas) {
@@ -1229,6 +1276,10 @@ namespace Main {
 
          // remove delegates that contain parameters or return types with unknown type
          {
+            if (showProgress) {
+               Console.WriteLine("\tDelegates...");
+            }
+            
             for (; ; ) {
                bool functionPointerRemoved = false;
                foreach (var kvp in functionPointerDatas) {
@@ -1279,6 +1330,10 @@ namespace Main {
 
          // remove global const variables with unknown type
          {
+            if (showProgress) {
+               Console.WriteLine("\tGlobal const variables...");
+            }
+            
             for (; ; ) {
                bool globalConstVariableRemoved = false;
                foreach (var kvp in globalConstVariableDatas) {
@@ -1297,6 +1352,10 @@ namespace Main {
                   break;
                }
             }
+         }
+
+         if (showProgress) {
+            Console.WriteLine("Preparing C# output...");
          }
 
          string libName;
@@ -1319,7 +1378,7 @@ namespace Main {
          // function pointers / delegates
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing delegates to be written...");
+               Console.WriteLine($"\tDelegates...");
             }
             
             csOutput.AppendLine("\t// DELEGATES");
@@ -1344,7 +1403,7 @@ namespace Main {
          // defines
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing defines to be written...");
+               Console.WriteLine($"\tDefines...");
             }
 
             csOutput.AppendLine();
@@ -1442,7 +1501,7 @@ namespace Main {
          // global const variables
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing global const variables to be written...");
+               Console.WriteLine($"\tGlobal const variables...");
             }
 
             csOutput.AppendLine();
@@ -1474,7 +1533,7 @@ namespace Main {
          // enums extracted out
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing enums to be written(extracted out)...");
+               Console.WriteLine($"\tEnums (extracted out)...");
             }
 
             csOutput.AppendLine();
@@ -1494,7 +1553,7 @@ namespace Main {
          // anonymous enums
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing anonymous enums to be written...");
+               Console.WriteLine($"\tAnonymous enums...");
             }
 
             csOutput.AppendLine();
@@ -1509,7 +1568,7 @@ namespace Main {
          // functions
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing functions to be written...");
+               Console.WriteLine($"\tFunctions...");
             }
 
             csOutput.AppendLine();
@@ -1552,7 +1611,7 @@ namespace Main {
          // structs
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing structs to be written...");
+               Console.WriteLine($"\tStructs...");
             }
 
             csOutput.AppendLine();
@@ -1612,7 +1671,7 @@ namespace Main {
          // unions
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing unions to be written...");
+               Console.WriteLine($"\tUnions...");
             }
 
             csOutput.AppendLine();
@@ -1647,7 +1706,7 @@ namespace Main {
          // enums
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing enums to be written...");
+               Console.WriteLine($"\tEnums...");
             }
 
             csOutput.AppendLine();
@@ -1668,7 +1727,7 @@ namespace Main {
          // Safe wrapper
          {
             if (showProgress) {
-               Console.WriteLine($"Preparing safe wrapper to be written...");
+               Console.WriteLine($"\tSafe wrapper...");
             }
 
             csOutput.AppendLine();
