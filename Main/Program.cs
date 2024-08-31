@@ -337,7 +337,7 @@ namespace Main {
             Regex constVariableRegex = new Regex(@"const\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
             // i did a little hack in the arrayPart. it was optional at first but regex has to capture it so i know what variable group it belongs to. if regex doesnt capture it indices messes up and i no further know what capture belongs to what.
             //    so it is required but it may match empty string which is not an array at all. so you need to check if arrayPart is empty to find out if it actually matched
-            Regex variableDeclarationWithCommaOperator = new Regex(@"(?<type>\w+[\w\s]*?)\s*(?<variable>(?<stars>[\s*]*?)(?<=[\s*,])(?<variableName>\w+)\s*(?<arrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|()))\s*,)+(?<lastVariable>(?<lastVariableStars>[\s*]*?)(?<=[\s*,])(?<lastVariableVariableName>\w+)\s*(?<lastVariableArrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])?)\s*;"); // at least one comma operated value is required
+            Regex variableDeclarationWithCommaOperator = new Regex(@"(?<type>\w+[\w\s]*?)\s*(?<variable>(?<stars>[\s*]*?)(?<=[\s*,])(?<variableName>\w+)\s*(?<arrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|()))\s*,)+(?<lastVariable>(?<lastVariableStars>[\s*]*?)(?<=[\s*,])(?<lastVariableVariableName>\w+)\s*(?<lastVariableArrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|())))\s*;"); // at least one comma operated value is required
             foreach (var kvp in preprocessedHeaderFiles) {
                string file = kvp.Value; // file contents
                string path = kvp.Key;
@@ -352,11 +352,12 @@ namespace Main {
                // NOTE: since this part modifies the "file" string which is usually a pretty big string, modifying it is costly.
                //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
                //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
+               //       while processing raylib 12 iterations of this for loop takes about idk 6 seconds or something which is a lot.
                {
                   if (showProgress) {
                      Console.WriteLine($"Processing comma operator [{path}]...");
                   }
-                  
+
                   for (; ; ) {
                      Match match = variableDeclarationWithCommaOperator.Match(file);
                      if (!match.Success) {
