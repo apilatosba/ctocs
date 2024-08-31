@@ -39,6 +39,11 @@ using System.Text.RegularExpressions;
 //          so a few options there are
 //          in the structs dont use enum type but use int.
 //          add an explicit cast. this option is not trivial
+//       todos from raylib
+//          comma operator.
+//          va_list
+//          parameter names that are keywords in c#
+//          i cant create safe wrapper around variadic functions. so when creating a safe wrapper check if the function is variadic then skip it i guess.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -301,8 +306,8 @@ namespace Main {
             //       what is this? i forgor. what is typedefd function? omegaluliguess
             //       maybe dont allow typedef here. and create another regex for typedefd functions. typedefd functions i think used like function pointers in c.
             Regex functionRegex = new Regex(@"(?:(?<typedef>typedef)\s+)?(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
-            Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:\s+(?<parameterName>\w+))?\s*,"); // parameter name optional.
-            Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:\s+(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
+            Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*,"); // parameter name optional.
+            Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             // allow zero stars
             Regex functionArgFunctionPointerRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>[*\s]*?)\s*(?<parameterName>\w+)?(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*,"); // expects a comma at the end just like functionArgRegex does
             Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
@@ -328,10 +333,12 @@ namespace Main {
             Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+(?<name>\w+))?\s*\{(?<members>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
             Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,"); // regex reqiures a comma at the end. i will manually add a comma to the end of the membersString so it doesnt miss the last element
             Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
-            Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
+            Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"(?<!typedef\s+)enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // do not match if starts with typedef
             // TODO: return type function pointer should be handled seperately.
             Regex typedefFunctionPointerRegex = new Regex(@"typedef\s+(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>\*[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*;");
-            Regex constVariableRegex = new Regex(@"const\s*(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
+            // apparently you can put the keywords in any order. const int. int const. const static int.
+            // i only support the ones that start with const keyword and between const and type these words are okay (static|volatile|register).
+            Regex constVariableRegex = new Regex(@"const\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
             foreach (var kvp in preprocessedHeaderFiles) {
                string file = kvp.Value; // file contents
                string path = kvp.Key;
@@ -861,6 +868,7 @@ namespace Main {
                      });
 
                      // remove the enum name if identifiers have them as prefix
+                     // TODO: this part stucks in an infinite loop when processing raylib.h. not the preprocessed one but the actual header.
                      for (; ; ) {
                         MatchCollection wordMatches = wordRegex.Matches(membersString);
                         Match firstWordMatchThatStartWithEnumName = null;
@@ -1229,7 +1237,35 @@ namespace Main {
             }
          }
 
-         string libName = Regex.Match(soFile, @".*?(lib)?(?<name>\w+)[\w.]*?\.so").Groups["name"].Value;
+         // remove global const variables with unknown type
+         {
+            for (; ; ) {
+               bool globalConstVariableRemoved = false;
+               foreach (var kvp in globalConstVariableDatas) {
+                  GlobalConstVariableData data = kvp.Value;
+                  string name = kvp.Key;
+
+                  string type = RemoveStarsFromEnd(data.type);
+                  if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
+                     globalConstVariableDatas.Remove(name);
+                     globalConstVariableRemoved = true;
+                     break;
+                  }
+               }
+
+               if (!globalConstVariableRemoved) {
+                  break;
+               }
+            }
+         }
+
+         string libName;
+         string libNameWithExtension;
+         {
+            Match match = Regex.Match(soFile, @"(?:.*?/)?(lib)?(?<nameWithExtension>(?<name>\w+)[\w.\-]*?\.so[^/\\]*)");
+            libName = match.Groups["name"].Value;
+            libNameWithExtension = match.Groups["nameWithExtension"].Value;
+         }
          StringBuilder csOutput = new StringBuilder();
          csOutput.AppendLine($"/**");
          csOutput.AppendLine($" * This file is auto generated by ctocs (c to cs)");
@@ -1260,9 +1296,10 @@ namespace Main {
                }
             }
          }
-         
+
+         csOutput.AppendLine();
          csOutput.AppendLine($"\tpublic static unsafe partial class Native {{");
-         csOutput.AppendLine($"\t\tpublic const string LIBRARY_NAME = @\"{soFile}\";");
+         csOutput.AppendLine($"\t\tpublic const string LIBRARY_NAME = @\"{libNameWithExtension}\";");
 
          // defines
          {
@@ -1377,7 +1414,7 @@ namespace Main {
                   if (data.value.StartsWith('{')) {
                      csOutput.AppendLine($"\t\tpublic unsafe static readonly {data.type} {data.name} = {value};");
                   } else {
-                     csOutput.AppendLine($"\t\tpublic unsafe const {data.type} {data.name} = {data.value};"); // i think this is not gonna work if data.value is a string literal. need to check
+                     csOutput.AppendLine($"\t\tpublic unsafe const {data.type} {data.name} = {data.value};"); // TODO: i think this is not gonna work if data.value is a string literal. need to check
                   }
                } else {
                   List<string> parts = ExtractOutArrayParts(data.arrayPart, openSquareBracketRegex); // this function is overkill here i only need the brace count. i use it because i write and then realized it isnt necessary and didnt want to let it stay unused
@@ -1948,8 +1985,12 @@ namespace Main {
          //          and then write those struct name size information to a Dictionary<string, int>
          //        NOTE: if i do the thing above then it is also going to be easy to extract out anonymous unions
          //        TODO: do the solution above
+         //              i got better solution. the const keyword in c means that the value assigned cant be changed but the const keyword in c# requires value to be compile time constant
+         //              so to better replicate const keyword in c in c# i can use static readonly.
+         //              update. une problemo. if it is fixed array then the size must be constant. so if you dont want to bother try setting it to pointer and see if it is interop friendly
          {
             // TODO: this algorithm has another problem. it applies ResolveTypedefsAndApplyFullConversion() function on every word but the type might more than one word. e.g. unsigned long int
+            //       i think types mostly exists inside of sizeof() so instead of searching for every word search for sizeof() and apply resolvng only on them
             string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
             result = result.Insert(0, "(");
             result += ')';
@@ -2023,7 +2064,6 @@ namespace Main {
          // function pointers
          {
             for (; ; ) {
-               // I dont think GetWholeParanthesisBlockUntilFollowingComma() and greedy regex is needed but i do it to be safe.
                Match functionPointerMatch = functionArgFunctionPointerRegex.Match(functionArgs);
                if (!functionPointerMatch.Success) {
                   break;
@@ -2219,10 +2259,13 @@ namespace Main {
          }
 
          result = result.TrimEnd(',', ' ');
+         result = result.Replace("\n", "\n\t\t");
 
          return result;
       }
 
+      // TODO: this has a problem. if initilization of struct doesnt have .type = but relies on the order then i am fucked up.
+      //       also ConvertCGlobalConstVariableValueToCSharpValue() wont generate correct output if thats the case
       static bool IsArrayBlock(in string block, Regex openCurlyBraceRegex, Regex dotMemberEqualsRegex) {
          // except for the outer most block remove every block
          string result = block;
