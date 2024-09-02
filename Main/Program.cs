@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -39,6 +40,10 @@ using System.Text.RegularExpressions;
 //          add an explicit cast. this option is not trivial
 //          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
+//       todos from glfw
+//          opaque objects
+//             they use opaque objects like typedef struct GLFWmonitor GLFWmonitor; but GLFWmonitor is defined nowhere
+//             what i should do is i think i should create an empty struct so other functions or structs using this struct is not removed.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -240,7 +245,7 @@ namespace Main {
          Dictionary<string, string> defines = new Dictionary<string, string>();
          {
             // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
-            Regex singleLineDefineRegex = new Regex(@"^[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w.]+[""']?)[ \t]*$", RegexOptions.Multiline);
+            Regex singleLineDefineRegex = new Regex(@"^[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w. \t]+[""']?)[ \t]*$", RegexOptions.Multiline);
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (var kvp in headerFiles) {
                string file = kvp.Value; // file contents
@@ -254,7 +259,7 @@ namespace Main {
                   MatchCollection matches = singleLineDefineRegex.Matches(file);
                   foreach (Match match in matches) {
                      string name = match.Groups["name"].Value;
-                     string value = match.Groups["value"].Value;
+                     string value = match.Groups["value"].Value.Trim();
                      name = EnsureVariableIsNotAReservedKeyword(name);
 
                      if (!singleLineDefines.TryAdd(name, value)) {
@@ -1449,7 +1454,13 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t\t// DEFINES");
             foreach (var kvp in singleLineDefines) {
-               if (int.TryParse(kvp.Value, out int intValue)) {
+               if (kvp.Value.StartsWith("0x") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int hexValue)) { // you have remove the 0x in the beginning otherwise int.tryparse doesnt work
+                  csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(int));
+               } else if (kvp.Value.StartsWith("0b") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.BinaryNumber, CultureInfo.InvariantCulture, out int binaryValue)) {
+                  csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(int));
+               } else if (int.TryParse(kvp.Value, out int intValue)) {
                   csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {intValue};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(int));
                } else if (float.TryParse(kvp.Value, out float floatValue)) {
@@ -1511,10 +1522,12 @@ namespace Main {
                   }
                }
             }
-
+            
             // if there are defines that are written in terms of other defines, then we can write them as well.
+            csOutput.AppendLine();
+            csOutput.AppendLine("\t\t//DEFINES THAT ARE WRITTEN IN TERMS OF OTHER DEFINES");
             foreach (var kvp in defines) {
-               if (singleLineDefines.ContainsKey(kvp.Key)) {
+               if (singleLineDefineTypes.ContainsKey(kvp.Key)) { // singleLineDefineTypes instead of singleLineDefines because singleLineDefineTypes only contains only the written ones and thats what i want.
                   continue;
                }
 
@@ -1523,7 +1536,7 @@ namespace Main {
                bool anUnknownWordExists = false;
                Type typeOfKnownWord = null;
                foreach (Match word in words) {
-                  if (!singleLineDefines.ContainsKey(word.Value)) {
+                  if (!singleLineDefineTypes.ContainsKey(word.Value)) {
                      anUnknownWordExists = true;
                      break;
                   } else {
