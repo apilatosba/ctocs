@@ -1455,11 +1455,11 @@ namespace Main {
             csOutput.AppendLine($"\t\t// DEFINES");
             foreach (var kvp in singleLineDefines) {
                if (kvp.Value.StartsWith("0x") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int hexValue)) { // you have remove the 0x in the beginning otherwise int.tryparse doesnt work
-                  csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {kvp.Value};");
-                  singleLineDefineTypes.Add(kvp.Key, typeof(int));
+                  csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(uint));
                } else if (kvp.Value.StartsWith("0b") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.BinaryNumber, CultureInfo.InvariantCulture, out int binaryValue)) {
-                  csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {kvp.Value};");
-                  singleLineDefineTypes.Add(kvp.Key, typeof(int));
+                  csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
+                  singleLineDefineTypes.Add(kvp.Key, typeof(uint));
                } else if (int.TryParse(kvp.Value, out int intValue)) {
                   csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {intValue};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(int));
