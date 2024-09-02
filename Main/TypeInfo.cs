@@ -9,7 +9,7 @@ namespace Main {
          { "unsigned char", "byte" },
          { "signed char", "sbyte" }, // signed specifier can be ignored other than "signed char"
          { "char", "byte" },
-         { "size_t", "uint" },
+         { "size_t", "uint" }, // TODO: removable?
          { "unsigned int", "uint" },
          { "unsigned short", "ushort" },
          { "unsigned short int", "ushort" },
@@ -22,6 +22,8 @@ namespace Main {
          { "long long int", "long" },
          { "long unsigned int", "uint" },
          { "long double", "double" },
+         { "__builtin_va_list", "RuntimeArgumentHandle" },  // basicTypes OMEGALUL
+         { "va_list", "RuntimeArgumentHandle" },            // basicTypes OMEGALUL
       };
 
       public readonly static HashSet<string> allowedFixedSizeBufferTypes = new HashSet<string>() {
@@ -59,6 +61,71 @@ namespace Main {
          "object",
          "decimal",
          "void",
+         "RuntimeArgumentHandle", // builtin OMEGALUL
+      };
+
+      // NOTE: note on the va_list RuntimeArgumentHandle approach. i think this only works on windows. i didnt test it. when i tried it on debian12 it said "System.PlatformNotSupportedException: ArgIterator is not supported on this platform."
+      //       surely is supported on windows Clueless. whatever there is nothing i can do about it. certified microsoft moment
+
+      public static readonly HashSet<string> csharpReservedKeywords = new HashSet<string>() {
+         "__arglist", "__makeref", "__reftype", "__refvalue",
+         "abstract", "as",
+         "base", "bool", "break", "byte",
+         "case", "catch", "char", "checked", "class", "const", "continue",
+         "decimal", "default", "delegate", "do", "double",
+         "else", "enum", "event", "explicit", "extern",
+         "false", "finally", "fixed", "float", "for", "foreach",
+         "goto",
+         "if", "implicit", "in", "int", "interface", "internal", "is",
+         "lock", "long",
+         "namespace", "new", "null",
+         "object", "operator", "out", "override",
+         "params", "private", "protected", "public",
+         "readonly", "ref", "return",
+         "sbyte", "sealed", "short", "sizeof", "stackalloc", "static", "string", "struct", "switch",
+         "this", "throw", "true", "try", "typeof",
+         "uint", "ulong", "unchecked", "unsafe", "ushort", "using",
+         "virtual", "void", "volatile",
+         "while"
+      };
+
+      public static readonly HashSet<string> csharpReservedKeywordsThatAreTypes = new HashSet<string>() {
+         "bool", "byte",
+         "char",
+         "decimal", "double",
+         "float",
+         "int",
+         "long",
+         "object",
+         "sbyte", "short", "string",
+         "uint", "ulong", "ushort"
+      };
+
+      public static readonly HashSet<string> csharpReservedKeywordsThatAreNotTypes;
+
+      static TypeInfo() {
+         csharpReservedKeywordsThatAreNotTypes = new HashSet<string>(csharpReservedKeywords);
+         csharpReservedKeywordsThatAreNotTypes.ExceptWith(csharpReservedKeywordsThatAreTypes);
+      }
+
+      /*
+         auto	else	long	switch
+         break	enum	register	typedef
+         case	extern	return	union
+         char	float	short	unsigned
+         const	for	signed	void
+         continue	goto	sizeof	volatile
+         default	if	static	while
+         do	int	struct	_Packed
+         double
+      */
+      public static readonly HashSet<string> cReservedKeywordsThatAreTypes = new HashSet<string>() {
+         "char",
+         "double",
+         "float",
+         "int",
+         "long",
+         "short",
       };
    }
 }

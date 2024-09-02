@@ -11,6 +11,8 @@ using System.Text.RegularExpressions;
 //       safe wrapper for pointer types
 //       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
 //          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
+//          if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
+//          if you see a type resolving to a __builtin_ then put this in your report i guess.
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
 //       if a variable name is a keyword in c# then find a valid variable name for it. you can use iota to get a unique name.
 //       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
@@ -38,8 +40,6 @@ using System.Text.RegularExpressions;
 //          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
 //       todos from raylib
-//          va_list
-//          parameter names that are keywords in c#
 //          i cant create safe wrapper around variadic functions. so when creating a safe wrapper check if the function is variadic then skip it i guess.
 namespace Main {
    class Program {
@@ -257,6 +257,8 @@ namespace Main {
                   foreach (Match match in matches) {
                      string name = match.Groups["name"].Value;
                      string value = match.Groups["value"].Value;
+                     name = EnsureVariableIsNotAReservedKeyword(name);
+
                      if (!singleLineDefines.TryAdd(name, value)) {
                         // Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
                      }
@@ -269,6 +271,8 @@ namespace Main {
                   foreach (Match match in matches) {
                      string name = match.Groups["name"].Value;
                      string value = match.Groups["value"].Value;
+                     name = EnsureVariableIsNotAReservedKeyword(name);
+
                      defines.TryAdd(name, value);
                   }
                }
@@ -349,45 +353,68 @@ namespace Main {
                Queue<(string name, string returnType, string args, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName /*null if there isnt any*/)> functionPointerFrontier = new Queue<(string name, string returnType, string args, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName)>();
 
                // MODIFYING THE FILE STRING but not modifying the value inside the preprocessedHeaderFiles dictionary. surely this is not gonna break anything Clueless
-               // comma operator. converting the normal declaration form.
-               // NOTE: since this part modifies the "file" string which is usually a pretty big string, modifying it is costly.
-               //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
-               //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
-               //       while processing raylib 12 iterations of this for loop takes about idk 6 seconds or something which is a lot.
-               // TODO: you dummy dum dumm. if declare consts you also have to provide value to them so this regex wonth even match global const variables.
-               //       move this to struct fields and create abother regex for global const variables.
                {
-                  if (showProgress) {
-                     Console.WriteLine($"Processing comma operator [{path}]...");
-                  }
-
-                  for (; ; ) {
-                     Match match = variableDeclarationWithCommaOperator.Match(file);
-                     if (!match.Success) {
-                        break;
+                  // comma operator. converting the normal declaration form.
+                  // NOTE: since this part modifies the "file" string which is usually a pretty big string, modifying it is costly.
+                  //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
+                  //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
+                  //       while processing raylib 12 iterations of this for loop takes about idk 6 seconds or something which is a lot.
+                  // TODO: you dummy dum dumm. if declare consts you also have to provide value to them so this regex wonth even match global const variables.
+                  //       move this to struct fields and create abother regex for global const variables.
+                  {
+                     if (showProgress) {
+                        Console.WriteLine($"Processing comma operator [{path}]...");
                      }
 
-                     string type = match.Groups["type"].Value;
-                     int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
-                     Debug.Assert(totalVariableCount >= 2);
-                     
-                     string[] starsArray = new string[totalVariableCount];
-                     string[] variableNameArray = new string[totalVariableCount];
-                     string[] arrayPartArray = new string[totalVariableCount];
-                     {
-                        for (int i = 0; i < totalVariableCount - 1; i++) {
-                           starsArray[i] = match.Groups["stars"].Captures[i].Value;
-                           variableNameArray[i] = match.Groups["variableName"].Captures[i].Value;
-                           arrayPartArray[i] = match.Groups["arrayPart"].Captures[i].Value;
+                     for (; ; ) {
+                        Match match = variableDeclarationWithCommaOperator.Match(file);
+                        if (!match.Success) {
+                           break;
                         }
 
-                        starsArray[totalVariableCount - 1] = match.Groups["lastVariableStars"].Value;
-                        variableNameArray[totalVariableCount - 1] = match.Groups["lastVariableVariableName"].Value;
-                        arrayPartArray[totalVariableCount - 1] = match.Groups["lastVariableArrayPart"].Value;
-                     }
+                        string type = match.Groups["type"].Value;
+                        int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
+                        Debug.Assert(totalVariableCount >= 2);
+                        
+                        string[] starsArray = new string[totalVariableCount];
+                        string[] variableNameArray = new string[totalVariableCount];
+                        string[] arrayPartArray = new string[totalVariableCount];
+                        {
+                           for (int i = 0; i < totalVariableCount - 1; i++) {
+                              starsArray[i] = match.Groups["stars"].Captures[i].Value;
+                              variableNameArray[i] = match.Groups["variableName"].Captures[i].Value;
+                              arrayPartArray[i] = match.Groups["arrayPart"].Captures[i].Value;
+                           }
 
-                     file = file.Remove(match.Index, match.Length)
-                              .Insert(match.Index, GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(type, starsArray, variableNameArray, arrayPartArray));
+                           starsArray[totalVariableCount - 1] = match.Groups["lastVariableStars"].Value;
+                           variableNameArray[totalVariableCount - 1] = match.Groups["lastVariableVariableName"].Value;
+                           arrayPartArray[totalVariableCount - 1] = match.Groups["lastVariableArrayPart"].Value;
+                        }
+
+                        file = file.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(type, starsArray, variableNameArray, arrayPartArray));
+                     }
+                  }
+
+                  // pretending that in the original c code there is no csharp only keywords.
+                  // e.g. allow int to stay as int but dont allow uint to stay as uint
+                  //    typedef char uint;
+                  //
+                  //    in this case assume that uint wasnt written but uint_ was written instead
+                  //
+                  //    typedef char uint_;
+                  {
+                     if (showProgress) {
+                        Console.WriteLine($"Processing csharp only keywords [{path}]...");
+                     }
+                     
+                     HashSet<string> csharpOnlyKeywordsThatAreTypes = new HashSet<string>(TypeInfo.csharpReservedKeywordsThatAreTypes);
+                     csharpOnlyKeywordsThatAreTypes.ExceptWith(TypeInfo.cReservedKeywordsThatAreTypes);
+
+                     foreach (string keyword in csharpOnlyKeywordsThatAreTypes) {
+                        Regex keywordRegex = new Regex(@$"\b{keyword}\b");
+                        keywordRegex.Replace(file, $"{keyword}_");
+                     }
                   }
                }
 
@@ -402,6 +429,8 @@ namespace Main {
                      string originalType = match.Groups["originalType"].Value;
                      string newType = match.Groups["newType"].Value;
                      originalType = originalType.Trim();
+                     // originalType = EnsureTypeIsNotAReservedKeyword(originalType);
+                     // newType = EnsureTypeIsNotAReservedKeyword(newType);
 
                      // NOTE: redefinition is allowed if the new type is the same as the old type
                      {
@@ -434,6 +463,9 @@ namespace Main {
                      string name = match.Groups["name"].Value;
                      Group arrayPartGroup = match.Groups["arrayPart"];
                      string value = match.Groups["value"].Value.Trim();
+                     
+                     name = EnsureVariableIsNotAReservedKeyword(name);
+                     // type = EnsureTypeIsNotAReservedKeyword(type);
 
                      globalConstVariableDatas.TryAdd(name, new GlobalConstVariableData() {
                         name = name,
@@ -465,6 +497,8 @@ namespace Main {
                      if (!exposedFunctionsInSOFile.Contains(functionName)) {
                         continue;
                      }
+
+                     // returnType = EnsureTypeIsNotAReservedKeyword(returnType);
 
                      // this is necessary since functionArgRegex matches void
                      if (functionArgs == "void") {
@@ -521,6 +555,8 @@ namespace Main {
                         functionArgs += ',';
                         functionArgs = RemoveConsts(functionArgs, out _);
                      }
+
+                     // returnType = EnsureTypeIsNotAReservedKeyword(returnType);
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
                         functionArgs,
@@ -815,6 +851,7 @@ namespace Main {
                         string type = structMemberMatch.Groups["type"].Value;
                         bool isBitfield = structMemberMatch.Groups["bitfieldValue"].Success;
                         type = type.Trim();
+                        name = EnsureVariableIsNotAReservedKeyword(name);
 
                         structOrUnionMembers.Add((new StructMember() {
                            name = name,
@@ -829,6 +866,7 @@ namespace Main {
                         string type = structMemberArrayMatch.Groups["type"].Value;
                         string size = structMemberArrayMatch.Groups["size"].Value;
                         type = type.Trim();
+                        name = EnsureVariableIsNotAReservedKeyword(name);
 
                         structOrUnionMembers.Add((new StructMemberArray() {
                            name = name,
@@ -970,6 +1008,10 @@ namespace Main {
                                     value = $"({enumMembers[enumMembers.Count - 1].identifier}) + 1";
                                  }
                               }
+
+                              // i dont need to this since at the beginning of processing i convert csharp reserved keywords to valid identifiers.
+                              // when it comes to c keywords it cant be here if the provided input is a valid c code and i assume it is.
+                              // identifier = EnsureVariableIsNotAReservedKeyword(identifier);
 
                               enumMembers.Add(new EnumMember() {
                                  identifier = identifier,
@@ -1365,7 +1407,7 @@ namespace Main {
             libName = match.Groups["name"].Value;
             libNameWithExtension = match.Groups["nameWithExtension"].Value;
          }
-         StringBuilder csOutput = new StringBuilder();
+         StringBuilder csOutput = new StringBuilder(4 * 1024 * 1024); // 4MB
          csOutput.AppendLine($"/**");
          csOutput.AppendLine($" * This file is auto generated by ctocs (c to cs)");
          csOutput.AppendLine($" * https://github.com/apilatosba/ctocs");
@@ -1731,6 +1773,7 @@ namespace Main {
             }
 
             csOutput.AppendLine();
+            csOutput.AppendLine($"\t// SAFE WRAPPER");
             csOutput.AppendLine("\tpublic static unsafe partial class Safe {");
 
             // function parameters with single star pointers and single dimension arrays
@@ -2206,6 +2249,7 @@ namespace Main {
                string type = functionArgMatch.Groups["type"].Value;
                string arrayPart = functionArgMatch.Groups["arrayPart"].Value;
                type = type.Trim();
+               // type = EnsureTypeIsNotAReservedKeyword(type);
 
                string parameterName;
                if (parameterNameGroup.Success) {
@@ -2213,6 +2257,7 @@ namespace Main {
                } else {
                   parameterName = GetAnonymousParameterName(iota);
                }
+               parameterName = EnsureVariableIsNotAReservedKeyword(parameterName);
 
                if (matchCollection == functionArgArrayMatches) {
                   parameterDatas.Add((new FunctionParameterArrayData() {
@@ -2312,6 +2357,11 @@ namespace Main {
                value = null;
             }
 
+            // i dont need to this since at the beginning of processing i convert csharp reserved keywords to valid identifiers.
+            // when it comes to c keywords it cant be here if the provided input is a valid c code and i assume it is.
+            // identifier = EnsureVariableIsNotAReservedKeyword(identifier);
+            // TODO : EnsureNotAReservedKeyword() should also be applied to words in value.
+
             enumMembers.Add(new EnumMember() {
                identifier = identifier,
                value = value
@@ -2346,6 +2396,8 @@ namespace Main {
          }
 
          // remove dots from dot member equals syntax. e.g. { .x = 5 } -> { x = 5 }
+         // TODO : if ".x = _value_" if _value_ is a csharp keyword then you need to apply EnsureNotAReservedKeyword() to it.
+         //       not anymore. same reason as enums
          {
             for (; ; ) {
                Match dotMemberEqualsMatch = dotMemberEqualsRegex.Match(result);
@@ -2424,6 +2476,19 @@ namespace Main {
          }
 
          return result.ToString();
+      }
+
+      static string EnsureVariableIsNotAReservedKeyword(in string s) {
+         return TypeInfo.csharpReservedKeywords.Contains(s) ? $"{s}_" : s;
+      }
+
+      [Obsolete("Switched to a different approach. new approach, at the beginning replace the keywords with something else")]
+      static string EnsureTypeIsNotAReservedKeyword(in string s) {
+         if (TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(s) && !TypeInfo.cReservedKeywordsThatAreTypes.Contains(s)) {
+            return $"{s}_";
+         } else {
+            return s;
+         }
       }
    }
 }
