@@ -39,8 +39,6 @@ using System.Text.RegularExpressions;
 //          add an explicit cast. this option is not trivial
 //          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
-//       todos from raylib
-//          i cant create safe wrapper around variadic functions. so when creating a safe wrapper check if the function is variadic then skip it i guess.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -1779,6 +1777,10 @@ namespace Main {
             // function parameters with single star pointers and single dimension arrays
             {
                foreach (FunctionData functionData in functionDatas.Values) {
+                  if (functionData.isVariadic) {
+                     continue;
+                  }
+                  
                   List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
                   List<int> indicesOfParametersToBeModified = new List<int>();
                   for (int i = 0; i < functionData.parameters.Count; i++) {
