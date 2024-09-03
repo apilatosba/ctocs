@@ -9,7 +9,6 @@ namespace Main {
          { "unsigned char", "byte" },
          { "signed char", "sbyte" }, // signed specifier can be ignored other than "signed char"
          { "char", "byte" },
-         { "size_t", "uint" }, // TODO: removable?
          { "unsigned int", "uint" },
          { "unsigned short", "ushort" },
          { "unsigned short int", "ushort" },

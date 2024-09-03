@@ -41,7 +41,7 @@ using System.Text.RegularExpressions;
 //          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
 //       try generating bindings for opengl
-//       bools and strings
+//       bools and strings. Marshal.PtrToStringUTF8
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -243,7 +243,7 @@ namespace Main {
          Dictionary<string, string> defines = new Dictionary<string, string>();
          {
             // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
-            Regex singleLineDefineRegex = new Regex(@"^[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w. \t]+[""']?)[ \t]*$", RegexOptions.Multiline);
+            Regex singleLineDefineRegex = new Regex(@"[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w. \t\-]+[""']?)[ \t]*");
             Regex anyDefineRegex = new Regex(@"# *define(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<name>\w+)(?:\\\r?\n)?[ \t]+(?:\\\r?\n)?[ \t]*(?<value>(?:[\w""' \t{}();,+\-*/=&%<>|.!#\^$?:]|\\\r?\n)+)\r?\n"); // macros with arguments are not supported
             foreach (var kvp in headerFiles) {
                string file = kvp.Value; // file contents
@@ -260,7 +260,7 @@ namespace Main {
                      string value = match.Groups["value"].Value.Trim();
                      name = EnsureVariableIsNotAReservedKeyword(name);
 
-                     if (!singleLineDefines.TryAdd(name, value)) {
+                     if (value != string.Empty && !singleLineDefines.TryAdd(name, value)) {
                         // Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
                      }
                   }
@@ -510,8 +510,6 @@ namespace Main {
                         continue;
                      }
 
-                     // returnType = EnsureTypeIsNotAReservedKeyword(returnType);
-
                      // this is necessary since functionArgRegex matches void
                      if (functionArgs == "void") {
                         functionArgs = "";
@@ -519,6 +517,7 @@ namespace Main {
                         functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
                         functionArgs = RemoveConsts(functionArgs, out _);
                      }
+                     returnType = RemoveConsts(returnType, out _).Trim();
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
                         functionArgs,
@@ -567,8 +566,7 @@ namespace Main {
                         functionArgs += ',';
                         functionArgs = RemoveConsts(functionArgs, out _);
                      }
-
-                     // returnType = EnsureTypeIsNotAReservedKeyword(returnType);
+                     returnType = RemoveConsts(returnType, out _).Trim();
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
                         functionArgs,
@@ -1564,7 +1562,7 @@ namespace Main {
 
             csOutput.AppendLine();
             csOutput.AppendLine($"\t\t// DEFINES");
-            foreach (var kvp in singleLineDefines) {
+            foreach (var kvp in singleLineDefines) {               
                if (kvp.Value.StartsWith("0x") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int hexValue)) { // you have remove the 0x in the beginning otherwise int.tryparse doesnt work
                   csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(uint));
@@ -1646,7 +1644,7 @@ namespace Main {
                MatchCollection words = wordRegex.Matches(kvp.Value);
                bool anUnknownWordExists = false;
                Type typeOfKnownWord = null;
-               foreach (Match word in words) {
+               foreach (Match word in words) { // TODO: if unknown word is a literal then it is fine. implement it.
                   if (!singleLineDefineTypes.ContainsKey(word.Value)) {
                      anUnknownWordExists = true;
                      break;
@@ -1781,7 +1779,7 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// STRUCTS");
             foreach (StructData structData in structDatas.Values) {
-               if (structData.fields.Count == 0) {
+               if (structData.fields.Count == 0) { // TODO: i dont think i should do this
                   continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
                }
 
