@@ -38,6 +38,21 @@ using System.Text.RegularExpressions;
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
 //       bools and strings. Marshal.PtrToStringUTF8
 //       create one to one constructor.
+//       when it comes to sizeof() get the sizes in a c program.
+//          create a c program
+//          include all the header files
+//          create a main function
+//          output the sizeof every struct
+//          catch the standard output from this program
+//          store them in a dictionary and use when necessary.
+//          in dotnet approach the problem is the csharp code is not going to be compiled at all. so you cant even run it. you have to do tweaks
+//             in c program approach opaque types are problem.
+//             nah. that also have problems. i think the easiest way is to create a function that calculates the size.
+//          i am gonna take a poor approach on sizeof. i think i have to take the c program approach because in other two approaches there might be cases that i am unable resolve the size
+//             since in c program approach the problem is implementation structs of opaque types in standard library, i am gonna try to skip those structs
+//             by doing a wrong assumption that they all start with an underscore. this creates another problem which is if the user created a struct that starts with underscore
+//             and uses that structs in sizeof() keyword then i am fucked up.
+//       following collections can be merged into a single collection: unionsThatArePresentInOriginalCCode, structsThatArePresentInOriginalCCode, shouldStructsOrUnionsInOriginalCCodeUseStructKeyword
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -149,27 +164,8 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine("Reading .so file...");
             }
-
-            Process readelfProcess = new Process();
-            ProcessStartInfo readelfProcessStartInfo = new ProcessStartInfo("readelf", $"-W --dyn-syms \"{soFile}\"") {
-               RedirectStandardOutput = true,
-            };
-
-            readelfProcess.StartInfo = readelfProcessStartInfo;
-            readelfProcess.Start();
-            StringBuilder readelfOutputBuilder = new StringBuilder();
-            string readelfOutput;
-            {
-               StreamReader readelfProcessOutputReader = readelfProcess.StandardOutput;
-               string buffer;
-               do {
-                  buffer = readelfProcessOutputReader.ReadToEnd();
-                  readelfOutputBuilder.Append(buffer);
-               } while (buffer != "");
-               readelfProcessOutputReader.Close();
-            }
-            readelfProcess.WaitForExit(); // if standard output is redirected then WaitForExit must be called after reading the output otherwise it hangs forever
-            readelfOutput = readelfOutputBuilder.ToString();
+            
+            string readelfOutput = StartAProcessWaitForExitReturnTheStdout("readelf", $"-W --dyn-syms \"{soFile}\"");
 
             Regex tableEntryRegex = new Regex(@"\s+(?<num>\d+):\s+(?<value>[0-9a-fA-F]+)\s+(?<size>\d+)\s+(?<type>\S+)\s+(?<bind>\S+)\s+(?<vis>\S+)\s+(?<ndx>\S+)\s+(?<name>\S+)");
             MatchCollection matches = tableEntryRegex.Matches(readelfOutput);
@@ -295,6 +291,7 @@ namespace Main {
          Regex openCurlyBraceRegex = new Regex(@"\{");
          Regex noNewBeforeCurlyBraceRegex = new Regex(@"(?<!new\(\)\s*)\{"); // if "{" preceded by new() then dont match it.
          Regex dotMemberEqualsRegex = new Regex(@"[{\s,](?<dot>\.)\s*\w+\s*="); // used to remove dots from global const variables
+         Regex sizeofRegex = new Regex(@"sizeof\s*\(\s*(?<content>\w+[\w\s]*?[*\s]*?)\s*\)");
 
          HashSet<string> opaqueStructs = new HashSet<string>();
          HashSet<string> opaqueUnions = new HashSet<string>();
@@ -315,6 +312,7 @@ namespace Main {
          //    instead what i should do is to defer the removal of prefix and thats it.
          Dictionary<string /*enum name*/, EnumData> enumDatasButPrefixesAreNotRemoved = new Dictionary<string, EnumData>();
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
+         Dictionary<string, bool> shouldStructsOrUnionsInOriginalCCodeUseStructKeyword = new Dictionary<string, bool>();
          {
             // TODO: handle typedef. if there is typedef keyword the ending has to be with semicolon { not allowed
             //       what is this? i forgor. what is typedefd function? omegaluliguess
@@ -618,6 +616,7 @@ namespace Main {
                      string structName = match.Groups["name"].Value;
                      string fields = match.Groups["fields"].Value;
                      structsThatArePresentInOriginalCCode.Add(structName);
+                     shouldStructsOrUnionsInOriginalCCodeUseStructKeyword.TryAdd(structName, true);
                      structFrontier.Enqueue((structName, fields));
                   }
 
@@ -636,6 +635,7 @@ namespace Main {
                         structName = typedefdName;
                      }
                      structsThatArePresentInOriginalCCode.Add(structName);
+                     shouldStructsOrUnionsInOriginalCCodeUseStructKeyword.TryAdd(structName, nameGroup.Success);
                      structFrontier.Enqueue((structName, fields));
                   }
 
@@ -650,6 +650,7 @@ namespace Main {
                      string unionName = match.Groups["name"].Value;
                      string fields = match.Groups["fields"].Value;
                      unionsThatArePresentInOriginalCCode.Add(unionName);
+                     shouldStructsOrUnionsInOriginalCCodeUseStructKeyword.TryAdd(unionName, true);
                      unionFrontier.Enqueue((unionName, fields));
                   }
 
@@ -668,6 +669,7 @@ namespace Main {
                         unionName = typedefdName;
                      }
                      unionsThatArePresentInOriginalCCode.Add(unionName);
+                     shouldStructsOrUnionsInOriginalCCodeUseStructKeyword.TryAdd(unionName, nameGroup.Success);
                      unionFrontier.Enqueue((unionName, fields));
                   }
 
@@ -1527,16 +1529,97 @@ namespace Main {
             }
          }
 
-         if (showProgress) {
-            Console.WriteLine("Preparing C# output...");
-         }
-
          string libName;
          string libNameWithExtension;
          {
             Match match = Regex.Match(soFile, @"(?:.*?/)?(lib)?(?<nameWithExtension>(?<name>\w+)[\w.\-]*?\.so[^/\\]*)");
             libName = match.Groups["name"].Value;
             libNameWithExtension = match.Groups["nameWithExtension"].Value;
+         }
+
+         if (showProgress) {
+            Console.WriteLine($"Creating the output directory...");
+         }
+         string outputDirectory = $"ctocs_{libName}";
+         Directory.CreateDirectory(outputDirectory);
+
+         Dictionary<string /*name*/, int /*size*/> sizeofTypes = new Dictionary<string, int>();
+         // sizeof types
+         {
+            Regex sizeofPairRegex = new Regex(@"\|(?<name>\w+\*?),(?<size>\d+)\|"); // ?<name> \*? is only there because of void*
+            if (showProgress) {
+               Console.WriteLine("Processing sizeof types...");
+               Console.WriteLine("\tPreparing the c file...");
+            }
+
+            StringBuilder cFileBuilder = new StringBuilder();
+            foreach (string headerFile in headerFiles.Keys) {
+               cFileBuilder.AppendLine($"#include \"{headerFile}\"");
+            }
+            cFileBuilder.AppendLine("#include <stdio.h>");
+
+            cFileBuilder.AppendLine();
+            cFileBuilder.AppendLine("int main() {");
+
+            cFileBuilder.AppendLine("\t// POINTER");
+            cFileBuilder.AppendLine("\tprintf(\"|void*,%lu|\\n\", sizeof(void*));");
+
+            cFileBuilder.AppendLine();
+            cFileBuilder.AppendLine("\t// STRUCTS");
+            foreach (string structName in structsThatArePresentInOriginalCCode) {
+               if (!structName.StartsWith('_')) {
+                  cFileBuilder.AppendLine($"\tprintf(\"|{structName},%lu|\\n\", sizeof({(shouldStructsOrUnionsInOriginalCCodeUseStructKeyword[structName] ? "struct " : "")}{structName}));");
+               }
+            }
+
+            cFileBuilder.AppendLine();
+            cFileBuilder.AppendLine("\t// UNIONS");
+            foreach (string unionName in unionsThatArePresentInOriginalCCode) {
+               if (!unionName.StartsWith('_')) {
+                  cFileBuilder.AppendLine($"\tprintf(\"|{unionName},%lu|\\n\", sizeof({(shouldStructsOrUnionsInOriginalCCodeUseStructKeyword[unionName] ? "union " : "")}{unionName}));");
+               }
+            }
+
+            cFileBuilder.AppendLine("}");
+
+            if (showProgress) {
+               Console.WriteLine("\tWriting the c file...");
+            }
+            string cFilePath = Path.Combine(outputDirectory, "sizeof.c");
+            File.WriteAllText(cFilePath, cFileBuilder.ToString());
+            
+            if (showProgress) {
+               Console.WriteLine("\tCompiling the c file...");
+            }
+            string executablePath = Path.Combine(outputDirectory, "sizeof");
+            // TODO: what if it doesnt compile
+            // TODO: if the include path contains path seperator does -I./ work. if it doesnt work then just prepend ../ to the include path
+            Process.Start("cc", $"{cFilePath} -o {executablePath} -I./").WaitForExit(); // TODO: do i need to link against something depending on the library
+
+            if (showProgress) {
+               Console.WriteLine("\tRunning the c file...");
+            }
+            string outputRaw = StartAProcessWaitForExitReturnTheStdout(executablePath, "");
+
+            if (showProgress) {
+               Console.WriteLine("\tProcessing the output...");
+            }
+            MatchCollection matchCollection = sizeofPairRegex.Matches(outputRaw);
+            foreach (Match match in matchCollection) {
+               string name = match.Groups["name"].Value;
+               int size = int.Parse(match.Groups["size"].Value);
+               sizeofTypes.Add(name, size);
+            }
+
+            if (showProgress) {
+               Console.WriteLine("\tCleaning up...");
+            }
+            File.Delete(cFilePath);
+            File.Delete(executablePath);
+         }
+
+         if (showProgress) {
+            Console.WriteLine("Preparing C# output...");
          }
          StringBuilder csOutput = new StringBuilder(4 * 1024 * 1024); // 4MB
          csOutput.AppendLine($"/**");
@@ -1843,7 +1926,15 @@ namespace Main {
                      }
                   } else if (structData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = structData.fields[i] as StructMemberArray;
-                     string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs);
+                     string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> unresolvedSizeofTypes);
+                     foreach (string unresolvedSizeofType in unresolvedSizeofTypes) {
+                        report.unresolvedSizeofTypes.Add(new UnresolvedSizeofTypeData() {
+                           nameOfTheField = memberArray.name,
+                           structNameWhichContainsTheSizeof = structData.name,
+                           unresolvedType = unresolvedSizeofType
+                        });
+                     }
+
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
@@ -1895,7 +1986,15 @@ namespace Main {
                   } else if (unionData.fields[i] is StructMemberArray) {
                      StructMemberArray memberArray = unionData.fields[i] as StructMemberArray;
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
-                        string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs);
+                        string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> unresolvedSizeofTypes);
+                        foreach (string unresolvedSizeofType in unresolvedSizeofTypes) {
+                           report.unresolvedSizeofTypes.Add(new UnresolvedSizeofTypeData() {
+                              nameOfTheField = memberArray.name,
+                              structNameWhichContainsTheSizeof = unionData.name,
+                              unresolvedType = unresolvedSizeofType
+                           });
+                        }
+                        
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
@@ -2037,12 +2136,6 @@ namespace Main {
 
 
          if (showProgress) {
-            Console.WriteLine($"Creating the output directory...");
-         }
-         string outputDirectory = $"ctocs_{libName}";
-         Directory.CreateDirectory(outputDirectory);
-
-         if (showProgress) {
             Console.WriteLine($"Writing to file...");
          }
          File.WriteAllText(Path.Combine(outputDirectory, $"{libName}.cs"), csOutput.ToString());
@@ -2062,6 +2155,14 @@ namespace Main {
             StringBuilder reportBuilder = new StringBuilder();
 
             reportBuilder.AppendLine($"Report of - ctocs {string.Join(' ', args)}");
+
+            if (report.unresolvedSizeofTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Unresolved sizeof types (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
+               foreach (UnresolvedSizeofTypeData data in report.unresolvedSizeofTypes) {
+                  reportBuilder.AppendLine($"\tIn the struct/union {data.structNameWhichContainsTheSizeof}, the field {data.nameOfTheField} has a sizeof which contains the type {data.unresolvedType}");
+               }
+            }
 
             if (report.definesThatAreDefinedMoreThanOnce.Count > 0) {
                reportBuilder.AppendLine();
@@ -2444,71 +2545,53 @@ namespace Main {
       /// The size string is the one you get from structMemberArrayRegex.Groups["size"]
       /// </summary>
       /// <param name="size"></param>
+      /// <param name="sizeofTypesThatCantBeResolved">include this in your report</param>
       /// <returns></returns>
-      static string MakeBetterSizeString(in string size, Dictionary<string, string> typedefs) {
-         // {
-         //    Regex getEverythingBetweenBracketsRegex = new Regex(@"\[(?<interior>.*?)\]", RegexOptions.Singleline);
-         //    MatchCollection matches = getEverythingBetweenBracketsRegex.Matches(size);
-         //    StringBuilder sizeBuilder = new StringBuilder();
-         //    for (int i = 0; i < matches.Count; i++) {
-         //       Match match = matches[i];
-         //       sizeBuilder.Append(match.Groups["interior"].Value);
-         //       if (i < matches.Count - 1) {
-         //          sizeBuilder.Append(" * ");
-         //       }
-         //    }
-         // }
+      static string MakeBetterSizeString(in string size, Dictionary<string, string> typedefs, Regex sizeofRegex, Dictionary<string, int> sizeofTypes, out HashSet<string> sizeofTypesThatCantBeResolved) {
+         sizeofTypesThatCantBeResolved = new HashSet<string>();
+         string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
+         result = result.Insert(0, "(");
+         result += ')';
 
-         // this version is written considering the case where between the brackets there might be sizeof(UserDefinedType)
-         // FIXME: there is a problem if sizeof(_type_) if _type_ is a user defined type then it wont compile on c# but if _type_ is a builtin type then it is no problem.
-         //        ClangSharp evaluates the result of sizeof(UserDefinedType) and writes the result.
-         //        solution:
-         //          create a dotnet project copy the structs query the sizeof the struct write it to standard output.
-         //          and then write those struct name size information to a Dictionary<string, int>
-         //        NOTE: if i do the thing above then it is also going to be easy to extract out anonymous unions
-         //        TODO: do the solution above
-         //              i got better solution. the const keyword in c means that the value assigned cant be changed but the const keyword in c# requires value to be compile time constant
-         //              so to better replicate const keyword in c in c# i can use static readonly.
-         //              update. une problemo. if it is fixed array then the size must be constant. so if you dont want to bother try setting it to pointer and see if it is interop friendly
-         {
-            // TODO: this algorithm has another problem. it applies ResolveTypedefsAndApplyFullConversion() function on every word but the type might more than one word. e.g. unsigned long int
-            //       i think types mostly exists inside of sizeof() so instead of searching for every word search for sizeof() and apply resolvng only on them
-            string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
-            result = result.Insert(0, "(");
-            result += ')';
-            Regex wordRegex = new Regex(@"\w+");
-            for (; ; ) {
-               bool changed = false;
-               MatchCollection wordMatches = wordRegex.Matches(result);
-               foreach (Match wordMatch in wordMatches) {
-                  string word = wordMatch.Value;
-                  string resolved = ResolveTypedefsAndApplyFullConversion(word, typedefs); // assuming ResolveTypedefsAndApplyFullConversion() doesnt change the string if the string is not a ctype
-                  if (resolved != word) {
-                     result = Regex.Replace(result, @$"\b{word}\b", resolved);
-                     changed = true;
-                  }
+         for (; ; ) {
+            bool changed = false;
+            MatchCollection matchCollection = sizeofRegex.Matches(result);
+            if (matchCollection.Count == 0) {
+               break;
+            }
+
+            foreach (Match match in matchCollection) {
+               Group contentGroup = match.Groups["content"];
+               string content = match.Groups["content"].Value;
+               content = ResolveTypedefsAndApplyFullConversion(content, typedefs);
+               if (IsPointer(content)) {
+                  result = result.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, sizeofTypes["void*"].ToString()); // void* special entry always exists
+                  changed = true;
+               } else if (sizeofTypes.TryGetValue(content, out int value)) {
+                  result = result.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, value.ToString());
+                  changed = true;
+               } else if (TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(content)) {
+                  result = result.Remove(contentGroup.Index, contentGroup.Length)
+                                 .Insert(contentGroup.Index, content);
+               } else { // this should be unreachable
+                  result = result.Remove(contentGroup.Index, contentGroup.Length)
+                                 .Insert(contentGroup.Index, content);
+                  sizeofTypesThatCantBeResolved.Add(content);
                }
-               if (!changed) {
+
+               if (changed) {
                   break;
                }
             }
-            result = ConvertWhiteSpacesToSingleSpace(result);
-            return result;
+
+            if (!changed) {
+               break;
+            }
          }
-         
-         // {
-         //    Regex wordRegex = new Regex(@"\w+");
-         //    MatchCollection wordsInSizeMatches = wordRegex.Matches(size);
-         //    StringBuilder sizeBuilder = new StringBuilder();
-         //    for (int i = 0; i < wordsInSizeMatches.Count; i++) {
-         //       Match wordMatch = wordsInSizeMatches[i];
-         //       sizeBuilder.Append(wordMatch.Value);
-         //       if (i < wordsInSizeMatches.Count - 1) {
-         //          sizeBuilder.Append(" * ");
-         //       }
-         //    }
-         //    return sizeBuilder.ToString();
-         // }
+
+         return result;
       }
 
       static string RemoveConsts(in string s, out bool hasConst) {
@@ -2853,6 +2936,31 @@ namespace Main {
          // } else {
          //    return true;
          // }
+      }
+
+      static string StartAProcessWaitForExitReturnTheStdout(string fileName, string arguments) {
+         Process process = new Process {
+            StartInfo = new ProcessStartInfo(fileName, arguments) {
+               RedirectStandardOutput = true,
+            }
+         };
+         process.Start();
+
+         StringBuilder stdoutBuilder = new StringBuilder();
+         StreamReader reader = process.StandardOutput;
+         string buffer;
+         do {
+            buffer = reader.ReadToEnd();
+            stdoutBuilder.Append(buffer);
+         } while (buffer != "");
+         reader.Close();
+
+         process.WaitForExit();
+         return stdoutBuilder.ToString();
+      }
+
+      static bool IsPointer(string type) {
+         return type.TrimEnd().EndsWith('*');
       }
    }
 }

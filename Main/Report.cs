@@ -17,6 +17,7 @@ namespace Main {
       public HashSet<string> removedEnumsBecauseTheyDontHaveAnyIdentifier;
       public HashSet<string> incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
       public HashSet<string> incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
+      public List<UnresolvedSizeofTypeData> unresolvedSizeofTypes;
 
       public Report() {
          definesThatAreDefinedMoreThanOnce = new HashSet<string>();
@@ -34,6 +35,13 @@ namespace Main {
          incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
          removedUnionsBecauseTheyDontHaveAnyFields = new HashSet<string>();
          removedEnumsBecauseTheyDontHaveAnyIdentifier = new HashSet<string>();
+         unresolvedSizeofTypes = new List<UnresolvedSizeofTypeData>();
       }
+   }
+
+   public class UnresolvedSizeofTypeData {
+      public string structNameWhichContainsTheSizeof;
+      public string nameOfTheField;
+      public string unresolvedType;
    }
 }
