@@ -10,15 +10,11 @@ using System.Text.RegularExpressions;
 // TODO: comments
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
-//       create a report to output to the console. for example if a function is exposed in .so file but coldnt be found in the given header files output this to the console. prepare a report string and at the end of the program write it.
-//          in the report also put this: if there is a define that is already defined then dont output it to csOutput (it is probably defined with #ifdef guards).
-//          if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
+//       if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
 //          if you see a type resolving to a __builtin_ then put this in your report i guess.
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
-//       if a variable name is a keyword in c# then find a valid variable name for it. you can use iota to get a unique name.
 //       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
 //       apparently function declarations in c allows function name to be enclosed with brackets. i should support this.
-//       Action and Func wrappers for function that takes a function pointer as an argument.
 //       const struct members. try this if it is interop friendly then do it:
 //          in c:
 //             struct StructWithConstMember {
@@ -40,8 +36,8 @@ using System.Text.RegularExpressions;
 //          add an explicit cast. this option is not trivial
 //          or kinda ignore since that case is not common. have two ways to do it. if there are no global const variables then dont do nothing.
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
-//       try generating bindings for opengl
 //       bools and strings. Marshal.PtrToStringUTF8
+//       create one to one constructor.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -238,9 +234,11 @@ namespace Main {
             }
          }
 
+         Report report = new Report();
          Dictionary<string, Type> singleLineDefineTypes = new Dictionary<string, Type>(); // includes the type of the entry in singleLineDefines if it is written to csOutput. #define FOO 5 -> singleLineDefineTypes["FOO"] = typeof(int)
          Dictionary<string, string> singleLineDefines = new Dictionary<string, string>(); // only the ones that can be written as "const ... = ..." are added here. #define FOO 5 -> defines["FOO"] = "5"
          Dictionary<string, string> defines = new Dictionary<string, string>();
+         HashSet<string> definesThatAreDefinedMoreThanOnce = new HashSet<string>();
          {
             // TODO: single line define should also support this kinda thing. #define FOO 1 << 8. #define FOO (1 << 8)
             Regex singleLineDefineRegex = new Regex(@"[ \t]*#[ \t]*define[ \t]+(?<name>\w+)[ \t]+(?<value>[""']?[\w. \t\-]+[""']?)[ \t]*");
@@ -261,6 +259,7 @@ namespace Main {
                      name = EnsureVariableIsNotAReservedKeyword(name);
 
                      if (value != string.Empty && !singleLineDefines.TryAdd(name, value)) {
+                        definesThatAreDefinedMoreThanOnce.Add(name);
                         // Console.WriteLine($"Warning: defines dictionary already includes \"{name}\". Value: \"{singleLineDefines[name]}\". you tried to set it to \"{value}\"");
                      }
                   }
@@ -274,9 +273,19 @@ namespace Main {
                      string value = match.Groups["value"].Value;
                      name = EnsureVariableIsNotAReservedKeyword(name);
 
-                     defines.TryAdd(name, value);
+                     if (!defines.TryAdd(name, value)) {
+                        definesThatAreDefinedMoreThanOnce.Add(name);
+                     }
                   }
                }
+            }
+
+            report.definesThatAreDefinedMoreThanOnce = definesThatAreDefinedMoreThanOnce;
+
+            // remove defines that are defined more than once
+            foreach (string define in definesThatAreDefinedMoreThanOnce) {
+               defines.Remove(define);
+               singleLineDefines.Remove(define);
             }
          }
 
@@ -310,7 +319,8 @@ namespace Main {
             // TODO: handle typedef. if there is typedef keyword the ending has to be with semicolon { not allowed
             //       what is this? i forgor. what is typedefd function? omegaluliguess
             //       maybe dont allow typedef here. and create another regex for typedefd functions. typedefd functions i think used like function pointers in c.
-            Regex functionRegex = new Regex(@"(?:(?<typedef>typedef)\s+)?(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
+            // NOTE: return type might match typedef. if return type contains typedef skip it
+            Regex functionRegex = new Regex(@"(?<!typedef\s+)(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*,"); // parameter name optional.
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             // allow zero stars
@@ -457,7 +467,8 @@ namespace Main {
 
                      if (newType != originalType) { // dont allow self cycles otherwise resolving typedefs will result in an infinite loop. e.g. typedef int newType; typedef newType newType;
                         if (!typedefs.TryAdd(newType, originalType)) {
-                           // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{csharpType}\"");
+                           // this cant happen in a valid c code. so not even putting it to the report
+                           // Console.WriteLine($"Warning: typedefs dictionary already includes \"{newType}\". Value: \"{typedefs[newType]}\". you tried to set it to \"{originalType}\"");
                         }
                      }
                   }
@@ -496,17 +507,18 @@ namespace Main {
 
                   MatchCollection matches = functionRegex.Matches(file);
                   foreach (Match functionMatch in matches) {
-                     Group typedefGroup = functionMatch.Groups["typedef"];
                      string returnType = functionMatch.Groups["returnType"].Value.Trim();
                      string functionName = functionMatch.Groups["functionName"].Value.Trim();
                      string functionArgs = functionMatch.Groups["args"].Value.Trim();
-                     bool isVariadic = functionMatch.Groups["variadicPart"].Success;
-
-                     if (typedefGroup.Success) {
+                     bool isVariadic = functionMatch.Groups["variadicPart"].Success;                     
+                     
+                     if (returnType.Contains("typedef")) {
+                        report.typedefdFunctionsOrWronglyCapturedFunctionPointers.Add(functionName); // TODO: those function should be added to delegates?
                         continue;
                      }
 
                      if (!exposedFunctionsInSOFile.Contains(functionName)) {
+                        report.functionsThatExistInHeaderFileButNotExposedInSOFile.Add(functionName);
                         continue;
                      }
 
@@ -1317,6 +1329,7 @@ namespace Main {
                         // unknown type found. so i should remove this struct otherwise generated c# wont compiler
                         structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
                         structRemoved = true;
+                        report.removedStructsBecauseTheyContainUnknownTypes.Add(structName);
                         break;
                      }
                   }
@@ -1359,6 +1372,7 @@ namespace Main {
                      if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                         unionDatas.Remove(unionName);
                         unionRemoved = true;
+                        report.removedUnionsBecauseTheyContainUnknownTypes.Add(unionName);
                         break;
                      }
                   }
@@ -1392,6 +1406,7 @@ namespace Main {
                      if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                         functionDatas.Remove(functionName);
                         functionRemoved = true;
+                        report.removedFunctionsBecauseTheyContainUnknownTypes.Add(functionName);
                         break;
                      }
                   }
@@ -1412,6 +1427,7 @@ namespace Main {
                         if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionDatas.Remove(functionName);
                            functionRemoved = true;
+                           report.removedFunctionsBecauseTheyContainUnknownTypes.Add(functionName);
                            break;
                         }
                      }
@@ -1446,6 +1462,7 @@ namespace Main {
                      if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                         functionPointerDatas.Remove(functionPointerName);
                         functionPointerRemoved = true;
+                        report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
                         break;
                      }
                   }
@@ -1466,6 +1483,7 @@ namespace Main {
                         if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionPointerDatas.Remove(functionPointerName);
                            functionPointerRemoved = true;
+                           report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
                            break;
                         }
                      }
@@ -1498,6 +1516,7 @@ namespace Main {
                   if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                      globalConstVariableDatas.Remove(name);
                      globalConstVariableRemoved = true;
+                     report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Add(name);
                      break;
                   }
                }
@@ -1546,6 +1565,7 @@ namespace Main {
                   // TODO: idk if above implementation would work for star amount other than 1. test it if it works then you can remove the if check.
                   //       maybe if it comes from a function parameter then i can declare the delegate as above and put the necessary stars in the function parameter. idk if it will work tho. need testing.
                   //       i think same concern goes for .arrayPart as well
+                  report.functionPointersWithAmountOfStarsDifferentThanOne.Add(functionPointerData.name);
                }
             }
          }
@@ -1628,6 +1648,8 @@ namespace Main {
                            singleLineDefineTypes.Add(kvp.Key, typeof(long));
                         }
                      }
+                  } else {
+                     report.unableToParseDefines.Add(kvp.Key, kvp.Value);
                   }
                }
             }
@@ -1656,6 +1678,8 @@ namespace Main {
                }
                if (!anUnknownWordExists) {
                   csOutput.AppendLine($"\t\tpublic const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};"); // TODO: no unsafe?
+               } else {
+                  report.unableToParseDefines.TryAdd(kvp.Key, kvp.Value);
                }
             }
          }
@@ -1780,6 +1804,7 @@ namespace Main {
             csOutput.AppendLine($"\t// STRUCTS");
             foreach (StructData structData in structDatas.Values) {
                if (structData.fields.Count == 0) { // TODO: i dont think i should do this
+                  report.removedStructsBecauseTheyDontHaveAnyFields.Add(structData.name);
                   continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
                }
 
@@ -1822,8 +1847,11 @@ namespace Main {
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
+                        report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Add(structData.name);
                         // TODO: idk what to do
                      }
+                  } else {
+                     throw new UnreachableException();
                   }
                }
                csOutput.AppendLine("\t}");
@@ -1852,7 +1880,8 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// UNIONS");
             foreach (StructData unionData in unionDatas.Values) {
-               if (unionData.fields.Count == 0) {
+               if (unionData.fields.Count == 0) { // TODO: prolly shouldnt do this. same reason as structs
+                  report.removedUnionsBecauseTheyDontHaveAnyFields.Add(unionData.name);
                   continue;
                }
 
@@ -1870,8 +1899,11 @@ namespace Main {
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
+                        report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Add(unionData.name);
                         // TODO: donk
                      }
+                  } else {
+                     throw new UnreachableException();
                   }
                }
                csOutput.AppendLine("\t}");
@@ -1900,7 +1932,8 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// ENUMS");
             foreach (EnumData enumData in enumDatas.Values) {
-               if (enumData.members.Count == 0) {
+               if (enumData.members.Count == 0) { // TODO: prolly shouldnt do this. same reason as structs
+                  report.removedEnumsBecauseTheyDontHaveAnyIdentifier.Add(enumData.name);
                   continue; // assuming the original enum is not empty and my regex matched it wrong. so skip
                }
 
@@ -2020,6 +2053,149 @@ namespace Main {
          // }
          // Process.Start("dotnet", $"format whitespace --folder {outputDirectory}").WaitForExit();
 
+         // report
+         {
+            if (showProgress) {
+               Console.WriteLine("Preparing the report...");
+            }
+
+            StringBuilder reportBuilder = new StringBuilder();
+
+            reportBuilder.AppendLine($"Report of - ctocs {string.Join(' ', args)}");
+
+            if (report.definesThatAreDefinedMoreThanOnce.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Defines that are defined more than once thus not included in the csharp output (probably because of ifdef guards):");
+               foreach (string define in report.definesThatAreDefinedMoreThanOnce) {
+                  reportBuilder.AppendLine($"\t{define}");
+               }
+            }
+
+            if (report.typedefdFunctionsOrWronglyCapturedFunctionPointers.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Typedefd functions or wrongly captured function pointers not considered as functions:");
+               foreach (string typedefdFunction in report.typedefdFunctionsOrWronglyCapturedFunctionPointers) {
+                  reportBuilder.AppendLine($"\t{typedefdFunction}");
+               }
+            }
+
+            if (report.functionsThatExistInHeaderFileButNotExposedInSOFile.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Functions that exists in the header files but not exposed in the .so file:");
+               foreach (string function in report.functionsThatExistInHeaderFileButNotExposedInSOFile) {
+                  reportBuilder.AppendLine($"\t{function}");
+               }
+            }
+
+            if (report.removedStructsBecauseTheyContainUnknownTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Structs that contain unknown types thus not included in the csharp output:");
+               foreach (string structName in report.removedStructsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{structName}");
+               }
+            }
+
+            if (report.removedUnionsBecauseTheyContainUnknownTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Unions that contain unknown types thus not included in the csharp output:");
+               foreach (string unionName in report.removedUnionsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{unionName}");
+               }
+            }
+
+            if (report.removedFunctionsBecauseTheyContainUnknownTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Functions that contain unknown types thus not included in the csharp output:");
+               foreach (string functionName in report.removedFunctionsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{functionName}");
+               }
+            }
+
+            if (report.removedDelegatesBecauseTheyContainUnknownTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Delegates that contain unknown types thus not included in the csharp output:");
+               foreach (string delegateName in report.removedDelegatesBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{delegateName}");
+               }
+            }
+
+            if (report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Global const variables that contain unknown types thus not included in the csharp output:");
+               foreach (string globalConstVariableName in report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{globalConstVariableName}");
+               }
+            }
+
+            if (report.functionPointersWithAmountOfStarsDifferentThanOne.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Function pointers with amount of stars different than one thus not included in the csharp output because idk what to do with thme yet:");
+               foreach (string functionPointer in report.functionPointersWithAmountOfStarsDifferentThanOne) {
+                  reportBuilder.AppendLine($"\t{functionPointer}");
+               }
+            }
+
+            if (report.unableToParseDefines.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Defines that are unable to be parsed:");
+               foreach (string define in report.unableToParseDefines.Keys) {
+                  reportBuilder.AppendLine($"\t{define}");
+               }
+
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Values of the previous defines:");
+               foreach (var kvp in report.unableToParseDefines) {
+                  reportBuilder.AppendLine($"\t{kvp.Key} = {kvp.Value}");
+                  reportBuilder.AppendLine();
+               }
+            }
+
+            if (report.removedStructsBecauseTheyDontHaveAnyFields.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Removed structs because they dont have any fields:");
+               foreach (string structName in report.removedStructsBecauseTheyDontHaveAnyFields) {
+                  reportBuilder.AppendLine($"\t{structName}");
+               }
+            }
+
+            if (report.removedUnionsBecauseTheyDontHaveAnyFields.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Removed unions because they dont have any fields:");
+               foreach (string unionName in report.removedUnionsBecauseTheyDontHaveAnyFields) {
+                  reportBuilder.AppendLine($"\t{unionName}");
+               }
+            }
+
+            if (report.removedEnumsBecauseTheyDontHaveAnyIdentifier.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Removed enums because they dont have any identifier:");
+               foreach (string enumName in report.removedEnumsBecauseTheyDontHaveAnyIdentifier) {
+                  reportBuilder.AppendLine($"\t{enumName}");
+               }
+            }
+
+            if (report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Incomplete structs because they contain an array with a type not allowed in fixed size buffers:");
+               foreach (string structName in report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers) {
+                  reportBuilder.AppendLine($"\t{structName}");
+               }
+            }
+
+            if (report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Incomplete unions because they contain an array with a type not allowed in fixed size buffers:");
+               foreach (string unionName in report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers) {
+                  reportBuilder.AppendLine($"\t{unionName}");
+               }
+            }
+
+            if (showProgress) {
+               Console.WriteLine("Writing the report...");
+            }
+            File.WriteAllText(Path.Combine(outputDirectory, $"{libName}_report.txt"), reportBuilder.ToString());
+         }
+   
          Console.ForegroundColor = ConsoleColor.Green;
          Console.WriteLine($"Done. Output is in \"{outputDirectory}\"");
       }
@@ -2027,12 +2203,12 @@ namespace Main {
       static void PrintHelp() {
          string help =
          """
-         Usage: ctocs sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h files>,, [options]
+         Usage: ctocs [options] sofile <.so file> hfiles <list of .h files>,, phfiles <list of preprocessed .h files>,,
                 ctocs [--help | -h]
 
          Options:
             --help, -h: Show this help message.
-            no-show-progress: Do not show progress bar.
+            no-show-progress: Do not show progress text.
          Examples:
             ctocs hfiles file1.h file2.h,, sofile libexample.so phfiles pfile1.h pfile2.h,,
          """;
@@ -2119,6 +2295,7 @@ namespace Main {
       // this function is used for 
       //   in Safe wrapper class if parameter is a pointer then it is converted to an array.
       //   but only if it is a basic type. int* -> int[]
+      // TODO: move this to TypeInfo. i think using TypeInfo.csharpReservedKeywordsThatAreTypes is fine
       static bool IsBasicType(string type) {
          return new string[] {
             "int", "uint", "long", "ulong", "short", "ushort", "char", "float", "double", "byte", "sbyte", "bool"
@@ -2484,7 +2661,7 @@ namespace Main {
          List<EnumMember> result = new List<EnumMember>();
          for (int i = 0; i < enumMembers.Count; i++) {
             EnumMember enumMember = enumMembers[i];
-            EnumMember newEnumMember = new EnumMember();
+            EnumMember newEnumMember;
 
             if (enumMember.value == null) {
                if (i == 0) {
