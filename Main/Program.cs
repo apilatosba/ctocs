@@ -318,7 +318,9 @@ namespace Main {
             //       what is this? i forgor. what is typedefd function? omegaluliguess
             //       maybe dont allow typedef here. and create another regex for typedefd functions. typedefd functions i think used like function pointers in c.
             // NOTE: return type might match typedef. if return type contains typedef skip it
-            Regex functionRegex = new Regex(@"(?<!typedef\s+)(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
+            //       in general negative lookbehind there is meaningless because return type matches it anyway
+            //       so you have to check if return type contains those words when processing the function.
+            Regex functionRegex = new Regex(@"(?<!(?:typedef|extern)\s+)(?<returnType>\w+[\w\s]*?[*\s]+?)\s*(?<functionName>\w+)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*[{;]", RegexOptions.Singleline | RegexOptions.Multiline); // looks for a declaration or implementation. ending might be "}" or ";"
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*,"); // parameter name optional.
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             // allow zero stars
@@ -512,6 +514,11 @@ namespace Main {
                      
                      if (returnType.Contains("typedef")) {
                         report.typedefdFunctionsOrWronglyCapturedFunctionPointers.Add(functionName); // TODO: those function should be added to delegates?
+                        continue;
+                     }
+
+                     if (returnType.Contains("extern")) {
+                        report.externFunctions.Add(functionName);
                         continue;
                      }
 
@@ -2288,6 +2295,14 @@ namespace Main {
                reportBuilder.AppendLine("Incomplete unions because they contain an array with a type not allowed in fixed size buffers:");
                foreach (string unionName in report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers) {
                   reportBuilder.AppendLine($"\t{unionName}");
+               }
+            }
+
+            if (report.externFunctions.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Functions declared as extern therefore not included in the csharp output:");
+               foreach (string externFunction in report.externFunctions) { // TODO: put a flag option to force include extern functions.
+                  reportBuilder.AppendLine($"\t{externFunction}");
                }
             }
 

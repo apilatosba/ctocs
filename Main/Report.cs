@@ -2,6 +2,7 @@ using System.Collections.Generic;
 
 namespace Main {
    public class Report {
+      public List<UnresolvedSizeofTypeData> unresolvedSizeofTypes;
       public HashSet<string> definesThatAreDefinedMoreThanOnce;
       public HashSet<string> typedefdFunctionsOrWronglyCapturedFunctionPointers;
       public HashSet<string> functionsThatExistInHeaderFileButNotExposedInSOFile;
@@ -17,9 +18,10 @@ namespace Main {
       public HashSet<string> removedEnumsBecauseTheyDontHaveAnyIdentifier;
       public HashSet<string> incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
       public HashSet<string> incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
-      public List<UnresolvedSizeofTypeData> unresolvedSizeofTypes;
+      public HashSet<string> externFunctions;
 
       public Report() {
+         unresolvedSizeofTypes = new List<UnresolvedSizeofTypeData>();
          definesThatAreDefinedMoreThanOnce = new HashSet<string>();
          typedefdFunctionsOrWronglyCapturedFunctionPointers = new HashSet<string>();
          functionsThatExistInHeaderFileButNotExposedInSOFile = new HashSet<string>();
@@ -35,7 +37,7 @@ namespace Main {
          incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
          removedUnionsBecauseTheyDontHaveAnyFields = new HashSet<string>();
          removedEnumsBecauseTheyDontHaveAnyIdentifier = new HashSet<string>();
-         unresolvedSizeofTypes = new List<UnresolvedSizeofTypeData>();
+         externFunctions = new HashSet<string>();
       }
    }
 
