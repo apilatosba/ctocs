@@ -2,7 +2,8 @@ using System.Collections.Generic;
 
 namespace Main {
    public class Report {
-      public List<UnresolvedSizeofTypeData> unresolvedSizeofTypes;
+      public List<UnresolvedSizeofTypeInAStructData> unresolvedSizeofTypeInStruct;
+      public List<UnresolvedSizeofTypeInAGlobalConstVariableData> unresolvedSizeofTypesInGlobalConstVariable;
       public HashSet<string> definesThatAreDefinedMoreThanOnce;
       public HashSet<string> typedefdFunctionsOrWronglyCapturedFunctionPointers;
       public HashSet<string> functionsThatExistInHeaderFileButNotExposedInSOFile;
@@ -21,7 +22,8 @@ namespace Main {
       public HashSet<string> externFunctions;
 
       public Report() {
-         unresolvedSizeofTypes = new List<UnresolvedSizeofTypeData>();
+         unresolvedSizeofTypeInStruct = new List<UnresolvedSizeofTypeInAStructData>();
+         unresolvedSizeofTypesInGlobalConstVariable = new List<UnresolvedSizeofTypeInAGlobalConstVariableData>();
          definesThatAreDefinedMoreThanOnce = new HashSet<string>();
          typedefdFunctionsOrWronglyCapturedFunctionPointers = new HashSet<string>();
          functionsThatExistInHeaderFileButNotExposedInSOFile = new HashSet<string>();
@@ -41,9 +43,14 @@ namespace Main {
       }
    }
 
-   public class UnresolvedSizeofTypeData {
+   public class UnresolvedSizeofTypeInAStructData {
       public string structNameWhichContainsTheSizeof;
       public string nameOfTheField;
+      public string unresolvedType;
+   }
+
+   public class UnresolvedSizeofTypeInAGlobalConstVariableData {
+      public string nameOfTheVariable;
       public string unresolvedType;
    }
 }

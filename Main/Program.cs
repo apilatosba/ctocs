@@ -38,20 +38,6 @@ using System.Text.RegularExpressions;
 //          or assume that it is fine and at the end after you create c# output create a dotnet project to test if it compiles if it doesnt compile then remove all the snus things from the code till it compiles.
 //       bools and strings. Marshal.PtrToStringUTF8
 //       create one to one constructor.
-//       when it comes to sizeof() get the sizes in a c program.
-//          create a c program
-//          include all the header files
-//          create a main function
-//          output the sizeof every struct
-//          catch the standard output from this program
-//          store them in a dictionary and use when necessary.
-//          in dotnet approach the problem is the csharp code is not going to be compiled at all. so you cant even run it. you have to do tweaks
-//             in c program approach opaque types are problem.
-//             nah. that also have problems. i think the easiest way is to create a function that calculates the size.
-//          i am gonna take a poor approach on sizeof. i think i have to take the c program approach because in other two approaches there might be cases that i am unable resolve the size
-//             since in c program approach the problem is implementation structs of opaque types in standard library, i am gonna try to skip those structs
-//             by doing a wrong assumption that they all start with an underscore. this creates another problem which is if the user created a struct that starts with underscore
-//             and uses that structs in sizeof() keyword then i am fucked up.
 //       following collections can be merged into a single collection: unionsThatArePresentInOriginalCCode, structsThatArePresentInOriginalCCode, shouldStructsOrUnionsInOriginalCCodeUseStructKeyword
 namespace Main {
    class Program {
@@ -1260,8 +1246,6 @@ namespace Main {
                
                foreach (GlobalConstVariableData data in globalConstVariableDatas.Values) {
                   data.type = ResolveTypedefsAndApplyFullConversion(data.type, typedefs);
-                  // TODO: data.values and data.arrayPart may contain types. e.g. sizeof(UserDefinedType)
-                  //       i have this problem down below in the MakeBetterSizeString() function too.
                }
             }
          }
@@ -1784,7 +1768,22 @@ namespace Main {
             csOutput.AppendLine("\t\t// GLOBAL CONST VARIABLES");
 
             foreach (GlobalConstVariableData data in globalConstVariableDatas.Values) {
-               string value = ConvertCGlobalConstVariableValueToCSharpValue(data.value, dotMemberEqualsRegex, noNewBeforeCurlyBraceRegex, openCurlyBraceRegex);
+               string value = ConvertCGlobalConstVariableValueToCSharpValue(data.value,
+                                                                           dotMemberEqualsRegex,
+                                                                           noNewBeforeCurlyBraceRegex,
+                                                                           openCurlyBraceRegex,
+                                                                           sizeofRegex,
+                                                                           typedefs,
+                                                                           sizeofTypes,
+                                                                           out HashSet<string> unresolvedSizeofTypes);
+
+               foreach (string unresolvedSizeofType in unresolvedSizeofTypes) {
+                  report.unresolvedSizeofTypesInGlobalConstVariable.Add(new UnresolvedSizeofTypeInAGlobalConstVariableData() {
+                     nameOfTheVariable = data.name,
+                     unresolvedType = unresolvedSizeofType
+                  });
+               }
+               
                if (data.arrayPart == null) {
                   if (data.value.StartsWith('{')) {
                      csOutput.AppendLine($"\t\tpublic unsafe static readonly {data.type} {data.name} = {value};");
@@ -1935,7 +1934,7 @@ namespace Main {
                      StructMemberArray memberArray = structData.fields[i] as StructMemberArray;
                      string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> unresolvedSizeofTypes);
                      foreach (string unresolvedSizeofType in unresolvedSizeofTypes) {
-                        report.unresolvedSizeofTypes.Add(new UnresolvedSizeofTypeData() {
+                        report.unresolvedSizeofTypeInStruct.Add(new UnresolvedSizeofTypeInAStructData() {
                            nameOfTheField = memberArray.name,
                            structNameWhichContainsTheSizeof = structData.name,
                            unresolvedType = unresolvedSizeofType
@@ -1995,7 +1994,7 @@ namespace Main {
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         string memberArraySize = MakeBetterSizeString(memberArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> unresolvedSizeofTypes);
                         foreach (string unresolvedSizeofType in unresolvedSizeofTypes) {
-                           report.unresolvedSizeofTypes.Add(new UnresolvedSizeofTypeData() {
+                           report.unresolvedSizeofTypeInStruct.Add(new UnresolvedSizeofTypeInAStructData() {
                               nameOfTheField = memberArray.name,
                               structNameWhichContainsTheSizeof = unionData.name,
                               unresolvedType = unresolvedSizeofType
@@ -2163,11 +2162,19 @@ namespace Main {
 
             reportBuilder.AppendLine($"Report of - ctocs {string.Join(' ', args)}");
 
-            if (report.unresolvedSizeofTypes.Count > 0) {
+            if (report.unresolvedSizeofTypeInStruct.Count > 0) {
                reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Unresolved sizeof types (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
-               foreach (UnresolvedSizeofTypeData data in report.unresolvedSizeofTypes) {
+               reportBuilder.AppendLine("Unresolved sizeof types in structs/unions (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
+               foreach (UnresolvedSizeofTypeInAStructData data in report.unresolvedSizeofTypeInStruct) {
                   reportBuilder.AppendLine($"\tIn the struct/union {data.structNameWhichContainsTheSizeof}, the field {data.nameOfTheField} has a sizeof which contains the type {data.unresolvedType}");
+               }
+            }
+
+            if (report.unresolvedSizeofTypesInGlobalConstVariable.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("Unresolved sizeof types in global const variables (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
+               foreach (UnresolvedSizeofTypeInAGlobalConstVariableData data in report.unresolvedSizeofTypesInGlobalConstVariable) {
+                  reportBuilder.AppendLine($"\tIn the global const variable {data.nameOfTheVariable}, the value has a sizeof which contains the type {data.unresolvedType}");
                }
             }
 
@@ -2563,48 +2570,11 @@ namespace Main {
       /// <param name="sizeofTypesThatCantBeResolved">include this in your report</param>
       /// <returns></returns>
       static string MakeBetterSizeString(in string size, Dictionary<string, string> typedefs, Regex sizeofRegex, Dictionary<string, int> sizeofTypes, out HashSet<string> sizeofTypesThatCantBeResolved) {
-         sizeofTypesThatCantBeResolved = new HashSet<string>();
          string result = Regex.Replace(size, @"\]\s*\[", ") * (").TrimStart('[').TrimEnd(']');
          result = result.Insert(0, "(");
          result += ')';
 
-         for (; ; ) {
-            bool changed = false;
-            MatchCollection matchCollection = sizeofRegex.Matches(result);
-            if (matchCollection.Count == 0) {
-               break;
-            }
-
-            foreach (Match match in matchCollection) {
-               Group contentGroup = match.Groups["content"];
-               string content = match.Groups["content"].Value;
-               content = ResolveTypedefsAndApplyFullConversion(content, typedefs);
-               if (IsPointer(content)) {
-                  result = result.Remove(match.Index, match.Length)
-                                 .Insert(match.Index, sizeofTypes["void*"].ToString()); // void* special entry always exists
-                  changed = true;
-               } else if (sizeofTypes.TryGetValue(content, out int value)) {
-                  result = result.Remove(match.Index, match.Length)
-                                 .Insert(match.Index, value.ToString());
-                  changed = true;
-               } else if (TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(content)) {
-                  result = result.Remove(contentGroup.Index, contentGroup.Length)
-                                 .Insert(contentGroup.Index, content);
-               } else { // this should be unreachable
-                  result = result.Remove(contentGroup.Index, contentGroup.Length)
-                                 .Insert(contentGroup.Index, content);
-                  sizeofTypesThatCantBeResolved.Add(content);
-               }
-
-               if (changed) {
-                  break;
-               }
-            }
-
-            if (!changed) {
-               break;
-            }
-         }
+         result = ResolveSizeofs(result, sizeofRegex, typedefs, sizeofTypes, out sizeofTypesThatCantBeResolved);
 
          return result;
       }
@@ -2809,7 +2779,14 @@ namespace Main {
          return enumMembers;
       }
 
-      static string ConvertCGlobalConstVariableValueToCSharpValue(in string cvalue, Regex dotMemberEqualsRegex, Regex noNewBeforeCurlyBraceRegex, Regex openCurlyBraceRegex) {
+      static string ConvertCGlobalConstVariableValueToCSharpValue(in string cvalue,
+                                                               Regex dotMemberEqualsRegex,
+                                                               Regex noNewBeforeCurlyBraceRegex,
+                                                               Regex openCurlyBraceRegex,
+                                                               Regex sizeofRegex,
+                                                               Dictionary<string, string> typedefs,
+                                                               Dictionary<string, int> sizeofTypes,
+                                                               out HashSet<string> sizeofTypesThatCantBeResolved) {
          string result = $"{cvalue},";
 
          // convert array blocks into array initalizers and struct initializers in to new() {}
@@ -2846,6 +2823,8 @@ namespace Main {
                result = result.Remove(indexOfDot, 1);
             }
          }
+
+         result = ResolveSizeofs(result, sizeofRegex, typedefs, sizeofTypes, out sizeofTypesThatCantBeResolved);
 
          result = result.TrimEnd(',', ' ');
          result = result.Replace("\n", "\n\t\t");
@@ -2976,6 +2955,51 @@ namespace Main {
 
       static bool IsPointer(string type) {
          return type.TrimEnd().EndsWith('*');
+      }
+
+      static string ResolveSizeofs(in string s, Regex sizeofRegex, Dictionary<string, string> typedefs, Dictionary<string, int> sizeofTypes, out HashSet<string> sizeofTypesThatCantBeResolved) {
+         string result = s;
+         sizeofTypesThatCantBeResolved = new HashSet<string>();
+
+         for (; ; ) {
+            bool changed = false;
+            MatchCollection matchCollection = sizeofRegex.Matches(result);
+            if (matchCollection.Count == 0) {
+               break;
+            }
+
+            foreach (Match match in matchCollection) {
+               Group contentGroup = match.Groups["content"];
+               string content = match.Groups["content"].Value;
+               content = ResolveTypedefsAndApplyFullConversion(content, typedefs);
+               if (IsPointer(content)) {
+                  result = result.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, sizeofTypes["void*"].ToString()); // void* special entry always exists
+                  changed = true;
+               } else if (sizeofTypes.TryGetValue(content, out int value)) {
+                  result = result.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, value.ToString());
+                  changed = true;
+               } else if (TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(content)) {
+                  result = result.Remove(contentGroup.Index, contentGroup.Length)
+                                 .Insert(contentGroup.Index, content);
+               } else { // this should be unreachable
+                  result = result.Remove(contentGroup.Index, contentGroup.Length)
+                                 .Insert(contentGroup.Index, content);
+                  sizeofTypesThatCantBeResolved.Add(content);
+               }
+
+               if (changed) {
+                  break;
+               }
+            }
+
+            if (!changed) {
+               break;
+            }
+         }
+
+         return result;
       }
    }
 }
