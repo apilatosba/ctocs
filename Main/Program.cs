@@ -39,6 +39,14 @@ using System.Text.RegularExpressions;
 //       bools and strings. Marshal.PtrToStringUTF8
 //       create one to one constructor.
 //       following collections can be merged into a single collection: unionsThatArePresentInOriginalCCode, structsThatArePresentInOriginalCCode, shouldStructsOrUnionsInOriginalCCodeUseStructKeyword
+//       add bitfield structs to your report. bitfield structs compiles but they are not interop friendly.
+//       in the report "Defines that are unable to be parsed:" #define GLFW_KEY_LAST GLFW_KEY_MENU gets reported as unable parsed but it exist in csOutput as it should so report is wrong.
+//       __attribute__() remove this in preprocessed header files similar to gibberish lines you remove.
+//       you can have a define thats defined in terms of other defines plus enums and global const variables.
+//       if a function parameter or struct member is unknown type and is a pointer then you can use nint for it.
+//       cimgui is fucked up
+//          both in cimgui and stb_image.h no functions are written they are all reported under this "Functions that contain unknown types thus not included in the csharp output:". but types are known
+//       remove type/function specifiers/qualifiers/modifiers like static volatile register inline. they may exist almost anywhere so remove them when from the matched string directly.
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -56,6 +64,7 @@ namespace Main {
          Dictionary<string /*path*/, string /*content*/> headerFiles = new Dictionary<string, string>();
          Dictionary<string /*path*/, string /*content*/> preprocessedHeaderFiles = new Dictionary<string, string>();
          bool showProgress = true;
+         bool includeExternFunctions = false;
 
          for (int i = 0; i < args.Length; i++) {
             if (args[i] == "sofile") {
@@ -71,7 +80,7 @@ namespace Main {
                   Console.WriteLine("Missing .h files");
                   Environment.Exit(1);
                }
-               
+
                for (i++; i < args.Length; i++) {
                   if (args[i] == ",,") {
                      break;
@@ -87,7 +96,7 @@ namespace Main {
                   Console.WriteLine("Missing .h files");
                   Environment.Exit(1);
                }
-               
+
                for (i++; i < args.Length; i++) {
                   if (args[i] == ",,") {
                      break;
@@ -98,8 +107,10 @@ namespace Main {
                      preprocessedHeaderFiles.TryAdd(args[i].Trim(), "");
                   }
                }
-            } else if(args[i] == "--no-show-progress") {
+            } else if (args[i] == "no-show-progress") {
                showProgress = false;
+            } else if (args[i] == "include-extern-functions") {
+               includeExternFunctions = true;
             } else {
                Console.WriteLine($"Unknown argument: {args[i]} at location {i}");
                Environment.Exit(1);
@@ -150,7 +161,7 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine("Reading .so file...");
             }
-            
+
             string readelfOutput = StartAProcessWaitForExitReturnTheStdout("readelf", $"-W --dyn-syms \"{soFile}\"");
 
             Regex tableEntryRegex = new Regex(@"\s+(?<num>\d+):\s+(?<value>[0-9a-fA-F]+)\s+(?<size>\d+)\s+(?<type>\S+)\s+(?<bind>\S+)\s+(?<vis>\S+)\s+(?<ndx>\S+)\s+(?<name>\S+)");
@@ -200,7 +211,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine($"\tReading {preprocessedHeaderFile}...");
                }
-               
+
                preprocessedHeaderFiles[preprocessedHeaderFile] = File.ReadAllText(preprocessedHeaderFile);
 
                // remove gibberish lines
@@ -231,7 +242,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine($"Processing defines [{path}]...");
                }
-               
+
                // single line defines
                {
                   MatchCollection matches = singleLineDefineRegex.Matches(file);
@@ -354,7 +365,7 @@ namespace Main {
             foreach (var kvp in preprocessedHeaderFiles) {
                string file = kvp.Value; // file contents
                string path = kvp.Key;
-               
+
                Queue<(string name, string fields)> unionFrontier = new Queue<(string name, string fields)>();
                Queue<(string name, string fields)> structFrontier = new Queue<(string name, string fields)>();
                Queue<(string enumName, string members)> enumFrontier = new Queue<(string enumName, string members)>();
@@ -383,7 +394,7 @@ namespace Main {
                         string type = match.Groups["type"].Value;
                         int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
                         Debug.Assert(totalVariableCount >= 2);
-                        
+
                         string[] starsArray = new string[totalVariableCount];
                         string[] variableNameArray = new string[totalVariableCount];
                         string[] arrayPartArray = new string[totalVariableCount];
@@ -415,7 +426,7 @@ namespace Main {
                      if (showProgress) {
                         Console.WriteLine($"Processing csharp only keywords [{path}]...");
                      }
-                     
+
                      HashSet<string> csharpOnlyKeywordsThatAreTypes = new HashSet<string>(TypeInfo.csharpReservedKeywordsThatAreTypes);
                      csharpOnlyKeywordsThatAreTypes.ExceptWith(TypeInfo.cReservedKeywordsThatAreTypes);
 
@@ -472,7 +483,7 @@ namespace Main {
                      string name = match.Groups["name"].Value;
                      Group arrayPartGroup = match.Groups["arrayPart"];
                      string value = match.Groups["value"].Value.Trim();
-                     
+
                      name = EnsureVariableIsNotAReservedKeyword(name);
                      // type = EnsureTypeIsNotAReservedKeyword(type);
 
@@ -496,14 +507,14 @@ namespace Main {
                      string returnType = functionMatch.Groups["returnType"].Value.Trim();
                      string functionName = functionMatch.Groups["functionName"].Value.Trim();
                      string functionArgs = functionMatch.Groups["args"].Value.Trim();
-                     bool isVariadic = functionMatch.Groups["variadicPart"].Success;                     
-                     
+                     bool isVariadic = functionMatch.Groups["variadicPart"].Success;
+
                      if (returnType.Contains("typedef")) {
                         report.typedefdFunctionsOrWronglyCapturedFunctionPointers.Add(functionName); // TODO: those function should be added to delegates?
                         continue;
                      }
 
-                     if (returnType.Contains("extern")) {
+                     if (!includeExternFunctions && returnType.Contains("extern")) {
                         report.externFunctions.Add(functionName);
                         continue;
                      }
@@ -520,6 +531,11 @@ namespace Main {
                         functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
                         functionArgs = RemoveConsts(functionArgs, out _);
                      }
+
+                     returnType = Regex.Replace(returnType, @"\binline\b", "");
+                     returnType = Regex.Replace(returnType, @"\bstatic\b", "");
+                     returnType = Regex.Replace(returnType, @"\bvolatile\b", "");
+                     returnType = Regex.Replace(returnType, @"\bextern\b", "");
                      returnType = RemoveConsts(returnType, out _).Trim();
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
@@ -1151,13 +1167,13 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine("Resolving typedefs and converting types to C# equivalents...");
             }
-            
+
             // functions
             {
                if (showProgress) {
                   Console.WriteLine("\tFunctions...");
                }
-               
+
                foreach (FunctionData functionData in functionDatas.Values) {
                   functionData.returnType = ResolveTypedefsAndApplyFullConversion(functionData.returnType, typedefs);
                   for (int i = 0; i < functionData.parameters.Count; i++) {
@@ -1179,7 +1195,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine("\tFunction pointers...");
                }
-               
+
                foreach (FunctionPointerData data in functionPointerDatas.Values) {
                   data.returnType = ResolveTypedefsAndApplyFullConversion(data.returnType, typedefs);
                   for (int i = 0; i < data.parameters.Count; i++) {
@@ -1201,7 +1217,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine("\tStructs...");
                }
-               
+
                foreach (StructData structData in structDatas.Values) {
                   foreach (IStructMember member in structData.fields) {
                      if (member is StructMember) {
@@ -1222,7 +1238,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine("\tUnions...");
                }
-               
+
                foreach (StructData unionData in unionDatas.Values) {
                   foreach (IStructMember member in unionData.fields) {
                      if (member is StructMember) {
@@ -1243,7 +1259,7 @@ namespace Main {
                if (showProgress) {
                   Console.WriteLine("\tGlobal const variables...");
                }
-               
+
                foreach (GlobalConstVariableData data in globalConstVariableDatas.Values) {
                   data.type = ResolveTypedefsAndApplyFullConversion(data.type, typedefs);
                }
@@ -1267,7 +1283,7 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine("Bitfield shenanigans...");
             }
-            
+
             foreach (var collection in new Dictionary<string, StructData>.ValueCollection[] { structDatas.Values, unionDatas.Values }) {
                foreach (StructData structData in collection) {
                   List<StructMember> structMembersToRemove = new List<StructMember>();
@@ -1294,88 +1310,135 @@ namespace Main {
             Console.WriteLine("Removing structs/unions/etc that contain unknown types...");
          }
 
-         // remove structs that contain member with an unknown type
+         // remove structs and unions and delegates (all types) (merged)
          {
             if (showProgress) {
-               Console.WriteLine("\tStructs...");
+               Console.WriteLine("\tStructs, unions, delegates...");
             }
-            
+
             for (; ; ) {
-               bool structRemoved = false;
+               List<(object obj, UltimateListElementType type)> ultimateList = new List<(object obj, UltimateListElementType type)>(structDatas.Count + unionDatas.Count + functionPointerDatas.Count); // object is either KeyValuePair<string, StructData> or KeyValuePair<string, StructData> or KeyValuePair<string, FunctionPointerData>
                foreach (var kvp in structDatas) {
-                  StructData structData = kvp.Value;
-                  string structName = kvp.Key;
-
-                  foreach (IStructMember structMember in structData.fields) {
-                     string type;
-                     if (structMember is StructMember) {
-                        type = (structMember as StructMember).type;
-                     } else if (structMember is StructMemberArray) {
-                        type = (structMember as StructMemberArray).type;
-                     } else {
-                        throw new UnreachableException();
-                     }
-                     type = RemoveStarsFromEnd(type);
-
-                     // does that type exist?
-                     if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
-                        // unknown type found. so i should remove this struct otherwise generated c# wont compiler
-                        structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
-                        structRemoved = true;
-                        report.removedStructsBecauseTheyContainUnknownTypes.Add(structName);
-                        break;
-                     }
-                  }
-
-                  // need to iterate over the structDatas all over again because the removed struct might wrongly detected as known type in the already scanned structs.
-                  if (structRemoved) {
-                     break;
-                  }
+                  ultimateList.Add((kvp, UltimateListElementType.Struct));
                }
 
-               if (!structRemoved) {
-                  break;
-               }
-            }
-         }
-
-         // remove unions that contain member with unknown type
-         {
-            if (showProgress) {
-               Console.WriteLine("\tUnions...");
-            }
-            
-            for (; ; ) {
-               bool unionRemoved = false;
                foreach (var kvp in unionDatas) {
-                  StructData unionData = kvp.Value;
-                  string unionName = kvp.Key;
+                  ultimateList.Add((kvp, UltimateListElementType.Union));
+               }
 
-                  foreach (IStructMember unionMember in unionData.fields) {
-                     string type;
-                     if (unionMember is StructMember) {
-                        type = (unionMember as StructMember).type;
-                     } else if (unionMember is StructMemberArray) {
-                        type = (unionMember as StructMemberArray).type;
-                     } else {
-                        throw new UnreachableException();
+               foreach (var kvp in functionPointerDatas) {
+                  ultimateList.Add((kvp, UltimateListElementType.Delegate));
+               }
+
+               bool removed = false;
+               foreach ((object obj, UltimateListElementType elementType) in ultimateList) {
+                  if (elementType == UltimateListElementType.Struct) {
+                     KeyValuePair<string, StructData> kvp = (KeyValuePair<string, StructData>)obj;
+
+                     StructData structData = kvp.Value;
+                     string structName = kvp.Key;
+
+                     foreach (IStructMember structMember in structData.fields) {
+                        string type;
+                        if (structMember is StructMember) {
+                           type = (structMember as StructMember).type;
+                        } else if (structMember is StructMemberArray) {
+                           type = (structMember as StructMemberArray).type;
+                        } else {
+                           throw new UnreachableException();
+                        }
+                        type = RemoveStarsFromEnd(type);
+
+                        // does that type exist?
+                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                           // unknown type found. so i should remove this struct otherwise generated c# wont compiler
+                           structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
+                           removed = true;
+                           report.removedStructsBecauseTheyContainUnknownTypes.Add(structName);
+                           break;
+                        }
                      }
-                     type = RemoveStarsFromEnd(type);
 
-                     if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
-                        unionDatas.Remove(unionName);
-                        unionRemoved = true;
-                        report.removedUnionsBecauseTheyContainUnknownTypes.Add(unionName);
+                     // need to iterate over the structDatas all over again because the removed struct might wrongly detected as known type in the already scanned structs.
+                     if (removed) {
                         break;
                      }
-                  }
+                  } else if (elementType == UltimateListElementType.Union) {
+                     KeyValuePair<string, StructData> kvp = (KeyValuePair<string, StructData>)obj;
 
-                  if (unionRemoved) {
-                     break;
+                     StructData unionData = kvp.Value;
+                     string unionName = kvp.Key;
+
+                     foreach (IStructMember unionMember in unionData.fields) {
+                        string type;
+                        if (unionMember is StructMember) {
+                           type = (unionMember as StructMember).type;
+                        } else if (unionMember is StructMemberArray) {
+                           type = (unionMember as StructMemberArray).type;
+                        } else {
+                           throw new UnreachableException();
+                        }
+                        type = RemoveStarsFromEnd(type);
+
+                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                           unionDatas.Remove(unionName);
+                           removed = true;
+                           report.removedUnionsBecauseTheyContainUnknownTypes.Add(unionName);
+                           break;
+                        }
+                     }
+
+                     if (removed) {
+                        break;
+                     }
+                  } else if (elementType == UltimateListElementType.Delegate) {
+                     KeyValuePair<string, FunctionPointerData> kvp = (KeyValuePair<string, FunctionPointerData>)obj;
+
+                     FunctionPointerData pointerData = kvp.Value;
+                     string functionPointerName = kvp.Key;
+
+                     // return type
+                     {
+                        string returnType = RemoveStarsFromEnd(pointerData.returnType);
+                        if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                           functionPointerDatas.Remove(functionPointerName);
+                           removed = true;
+                           report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
+                           break;
+                        }
+                     }
+
+                     // parameters
+                     {
+                        foreach (IFunctionParameterData parameterData in pointerData.parameters) {
+                           string type;
+                           if (parameterData is FunctionParameterData) {
+                              type = (parameterData as FunctionParameterData).type;
+                           } else if (parameterData is FunctionParameterArrayData) {
+                              type = (parameterData as FunctionParameterArrayData).type;
+                           } else {
+                              throw new UnreachableException();
+                           }
+                           type = RemoveStarsFromEnd(type);
+
+                           if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                              functionPointerDatas.Remove(functionPointerName);
+                              removed = true;
+                              report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
+                              break;
+                           }
+                        }
+
+                        if (removed) {
+                           break;
+                        }
+                     }
+                  } else {
+                     throw new UnreachableException();
                   }
                }
 
-               if (!unionRemoved) {
+               if (!removed) {
                   break;
                }
             }
@@ -1386,7 +1449,7 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine("\tFunctions...");
             }
-            
+
             for (; ; ) {
                bool functionRemoved = false;
                foreach (var kvp in functionDatas) {
@@ -1437,68 +1500,12 @@ namespace Main {
             }
          }
 
-         // remove delegates that contain parameters or return types with unknown type
-         {
-            if (showProgress) {
-               Console.WriteLine("\tDelegates...");
-            }
-            
-            for (; ; ) {
-               bool functionPointerRemoved = false;
-               foreach (var kvp in functionPointerDatas) {
-                  FunctionPointerData pointerData = kvp.Value;
-                  string functionPointerName = kvp.Key;
-
-                  // return type
-                  {
-                     string returnType = RemoveStarsFromEnd(pointerData.returnType);
-                     if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
-                        functionPointerDatas.Remove(functionPointerName);
-                        functionPointerRemoved = true;
-                        report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
-                        break;
-                     }
-                  }
-
-                  // parameters
-                  {
-                     foreach (IFunctionParameterData parameterData in pointerData.parameters) {
-                        string type;
-                        if (parameterData is FunctionParameterData) {
-                           type = (parameterData as FunctionParameterData).type;
-                        } else if (parameterData is FunctionParameterArrayData) {
-                           type = (parameterData as FunctionParameterArrayData).type;
-                        } else {
-                           throw new UnreachableException();
-                        }
-                        type = RemoveStarsFromEnd(type);
-
-                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
-                           functionPointerDatas.Remove(functionPointerName);
-                           functionPointerRemoved = true;
-                           report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
-                           break;
-                        }
-                     }
-
-                     if (functionPointerRemoved) {
-                        break;
-                     }
-                  }
-               }
-
-               if (!functionPointerRemoved) {
-                  break;
-               }
-            }
-         }
-
          // remove global const variables with unknown type
          {
             if (showProgress) {
                Console.WriteLine("\tGlobal const variables...");
             }
-            
+
             for (; ; ) {
                bool globalConstVariableRemoved = false;
                foreach (var kvp in globalConstVariableDatas) {
@@ -1578,7 +1585,7 @@ namespace Main {
             }
             string cFilePath = Path.Combine(outputDirectory, "sizeof.c");
             File.WriteAllText(cFilePath, cFileBuilder.ToString());
-            
+
             if (showProgress) {
                Console.WriteLine("\tCompiling the c file...");
             }
@@ -1627,7 +1634,7 @@ namespace Main {
             if (showProgress) {
                Console.WriteLine($"\tDelegates...");
             }
-            
+
             csOutput.AppendLine("\t// DELEGATES");
             foreach (FunctionPointerData functionPointerData in functionPointerDatas.Values) {
                string functionArgs = GetFunctionArgsAsString(functionPointerData.parameters);
@@ -1656,7 +1663,7 @@ namespace Main {
 
             csOutput.AppendLine();
             csOutput.AppendLine($"\t\t// DEFINES");
-            foreach (var kvp in singleLineDefines) {               
+            foreach (var kvp in singleLineDefines) {
                if (kvp.Value.StartsWith("0x") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int hexValue)) { // you have remove the 0x in the beginning otherwise int.tryparse doesnt work
                   csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(uint));
@@ -1727,7 +1734,7 @@ namespace Main {
                   }
                }
             }
-            
+
             // if there are defines that are written in terms of other defines, then we can write them as well.
             csOutput.AppendLine();
             csOutput.AppendLine("\t\t// DEFINES THAT ARE WRITTEN IN TERMS OF OTHER DEFINES");
@@ -1783,7 +1790,7 @@ namespace Main {
                      unresolvedType = unresolvedSizeofType
                   });
                }
-               
+
                if (data.arrayPart == null) {
                   if (data.value.StartsWith('{')) {
                      csOutput.AppendLine($"\t\tpublic unsafe static readonly {data.type} {data.name} = {value};");
@@ -2000,7 +2007,7 @@ namespace Main {
                               unresolvedType = unresolvedSizeofType
                            });
                         }
-                        
+
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
@@ -2079,7 +2086,7 @@ namespace Main {
                   if (functionData.isVariadic) {
                      continue;
                   }
-                  
+
                   List<FunctionParameterData> newParameters = new List<FunctionParameterData>();
                   List<int> indicesOfParametersToBeModified = new List<int>();
                   for (int i = 0; i < functionData.parameters.Count; i++) {
@@ -2308,7 +2315,7 @@ namespace Main {
             if (report.externFunctions.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Functions declared as extern therefore not included in the csharp output:");
-               foreach (string externFunction in report.externFunctions) { // TODO: put a flag option to force include extern functions.
+               foreach (string externFunction in report.externFunctions) {
                   reportBuilder.AppendLine($"\t{externFunction}");
                }
             }
@@ -2318,7 +2325,7 @@ namespace Main {
             }
             File.WriteAllText(Path.Combine(outputDirectory, $"{libName}_report.txt"), reportBuilder.ToString());
          }
-   
+
          Console.ForegroundColor = ConsoleColor.Green;
          Console.WriteLine($"Done. Output is in \"{outputDirectory}\"");
       }
@@ -2332,6 +2339,7 @@ namespace Main {
          Options:
             --help, -h: Show this help message.
             no-show-progress: Do not show progress text.
+            include-extern-functions: Include functions that are declared as extern in the csharp output if they are exposed in the so file.
          Examples:
             ctocs hfiles file1.h file2.h,, sofile libexample.so phfiles pfile1.h pfile2.h,,
          """;
@@ -2555,7 +2563,7 @@ namespace Main {
 
       static string GetDelegateNameOfFunctionPointer(string functionPointerName, string surroundingFunctionName) {
          // surroundingFunctionName i think this is only null when function pointer is typedefd
-         if (surroundingFunctionName == null) { 
+         if (surroundingFunctionName == null) {
             return $"{functionPointerName}";
          } else {
             return $"{surroundingFunctionName}_{functionPointerName}_DELEGATE";
