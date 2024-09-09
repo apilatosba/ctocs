@@ -14,9 +14,6 @@ namespace Main {
       public HashSet<string> removedGlobalConstVariablesBecauseTheyContainUnknownTypes;
       public HashSet<string> functionPointersWithAmountOfStarsDifferentThanOne;
       public Dictionary<string /*name*/, string /*raw value*/> unableToParseDefines;
-      public HashSet<string> removedStructsBecauseTheyDontHaveAnyFields;
-      public HashSet<string> removedUnionsBecauseTheyDontHaveAnyFields;
-      public HashSet<string> removedEnumsBecauseTheyDontHaveAnyIdentifier;
       public HashSet<string> incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
       public HashSet<string> incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
       public HashSet<string> externFunctions;
@@ -34,11 +31,8 @@ namespace Main {
          removedGlobalConstVariablesBecauseTheyContainUnknownTypes = new HashSet<string>();
          functionPointersWithAmountOfStarsDifferentThanOne = new HashSet<string>();
          unableToParseDefines = new Dictionary<string, string>();
-         removedStructsBecauseTheyDontHaveAnyFields = new HashSet<string>();
          incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
          incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
-         removedUnionsBecauseTheyDontHaveAnyFields = new HashSet<string>();
-         removedEnumsBecauseTheyDontHaveAnyIdentifier = new HashSet<string>();
          externFunctions = new HashSet<string>();
       }
    }

@@ -47,6 +47,7 @@ using System.Text.RegularExpressions;
 //       cimgui is fucked up
 //          both in cimgui and stb_image.h no functions are written they are all reported under this "Functions that contain unknown types thus not included in the csharp output:". but types are known
 //       remove type/function specifiers/qualifiers/modifiers like static volatile register inline. they may exist almost anywhere so remove them when from the matched string directly.
+//       function pointers as struct members
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -1590,7 +1591,8 @@ namespace Main {
                Console.WriteLine("\tCompiling the c file...");
             }
             string executablePath = Path.Combine(outputDirectory, "sizeof");
-            // TODO: what if it doesnt compile
+            // TODO: what if it doesnt compile. if it doesnt compile move on with empty sizeofTypes dictionary
+            //       i think the functions that use sizeofTypes does work if it is empty (check this). and report this to console
             // TODO: if the include path contains path seperator does -I./ work. if it doesnt work then just prepend ../ to the include path
             Process.Start("cc", $"{cFilePath} -o {executablePath} -I./").WaitForExit(); // TODO: do i need to link against something depending on the library
 
@@ -1899,11 +1901,6 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// STRUCTS");
             foreach (StructData structData in structDatas.Values) {
-               if (structData.fields.Count == 0) { // TODO: i dont think i should do this
-                  report.removedStructsBecauseTheyDontHaveAnyFields.Add(structData.name);
-                  continue; // assuming the original struct is not empty and my regex matched it wrong. so skip
-               }
-
                // csOutput.AppendLine($"  [StructLayout(LayoutKind.Explicit)]");
                // csOutput.AppendLine($"  {structData.accessModifier} unsafe partial struct {structData.name} {{"); // Inconsistent accessibility: field type 'Outer_inner_struct' is less accessible than field 'Outer.inner' [Main]csharp(CS0052)
                csOutput.AppendLine($"\tpublic unsafe partial struct {structData.name} {{");
@@ -1984,11 +1981,6 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// UNIONS");
             foreach (StructData unionData in unionDatas.Values) {
-               if (unionData.fields.Count == 0) { // TODO: prolly shouldnt do this. same reason as structs
-                  report.removedUnionsBecauseTheyDontHaveAnyFields.Add(unionData.name);
-                  continue;
-               }
-
                csOutput.AppendLine($"\t[StructLayout(LayoutKind.Explicit)]");
                csOutput.AppendLine($"\tpublic unsafe partial struct {unionData.name} {{");
                for (int i = 0; i < unionData.fields.Count; i++) {
@@ -2044,11 +2036,6 @@ namespace Main {
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// ENUMS");
             foreach (EnumData enumData in enumDatas.Values) {
-               if (enumData.members.Count == 0) { // TODO: prolly shouldnt do this. same reason as structs
-                  report.removedEnumsBecauseTheyDontHaveAnyIdentifier.Add(enumData.name);
-                  continue; // assuming the original enum is not empty and my regex matched it wrong. so skip
-               }
-
                csOutput.AppendLine($"\tpublic enum {enumData.name} {{");
                foreach (EnumMember enumMember in enumData.members) {
                   csOutput.AppendLine($"\t\t{enumMember.identifier}{(string.IsNullOrEmpty(enumMember.value) ? "" : $" = {enumMember.value}")},");
@@ -2269,30 +2256,6 @@ namespace Main {
                foreach (var kvp in report.unableToParseDefines) {
                   reportBuilder.AppendLine($"\t{kvp.Key} = {kvp.Value}");
                   reportBuilder.AppendLine();
-               }
-            }
-
-            if (report.removedStructsBecauseTheyDontHaveAnyFields.Count > 0) {
-               reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Removed structs because they dont have any fields:");
-               foreach (string structName in report.removedStructsBecauseTheyDontHaveAnyFields) {
-                  reportBuilder.AppendLine($"\t{structName}");
-               }
-            }
-
-            if (report.removedUnionsBecauseTheyDontHaveAnyFields.Count > 0) {
-               reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Removed unions because they dont have any fields:");
-               foreach (string unionName in report.removedUnionsBecauseTheyDontHaveAnyFields) {
-                  reportBuilder.AppendLine($"\t{unionName}");
-               }
-            }
-
-            if (report.removedEnumsBecauseTheyDontHaveAnyIdentifier.Count > 0) {
-               reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Removed enums because they dont have any identifier:");
-               foreach (string enumName in report.removedEnumsBecauseTheyDontHaveAnyIdentifier) {
-                  reportBuilder.AppendLine($"\t{enumName}");
                }
             }
 
