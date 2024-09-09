@@ -48,6 +48,8 @@ using System.Text.RegularExpressions;
 //          both in cimgui and stb_image.h no functions are written they are all reported under this "Functions that contain unknown types thus not included in the csharp output:". but types are known
 //       remove type/function specifiers/qualifiers/modifiers like static volatile register inline. they may exist almost anywhere so remove them when from the matched string directly.
 //       function pointers as struct members
+//       comma operator on global const variables
+//       ImVector_ImDrawListPtr cant make it to csharp output but it should
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -374,48 +376,6 @@ namespace Main {
 
                // MODIFYING THE FILE STRING but not modifying the value inside the preprocessedHeaderFiles dictionary. surely this is not gonna break anything Clueless
                {
-                  // comma operator. converting the normal declaration form.
-                  // NOTE: since this part modifies the "file" string which is usually a pretty big string, modifying it is costly.
-                  //       i can move this part to smaller parts like only apply this to fields of a struct. that way it is a lot a lot faster but then i miss const global variables.
-                  //       maybe i should create another regex for global const variables with comma operator and move this part to fields of structs and unions.
-                  //       while processing raylib 12 iterations of this for loop takes about idk 6 seconds or something which is a lot.
-                  // TODO: you dummy dum dumm. if declare consts you also have to provide value to them so this regex wonth even match global const variables.
-                  //       move this to struct fields and create abother regex for global const variables.
-                  {
-                     if (showProgress) {
-                        Console.WriteLine($"Processing comma operator [{path}]...");
-                     }
-
-                     for (; ; ) {
-                        Match match = variableDeclarationWithCommaOperator.Match(file);
-                        if (!match.Success) {
-                           break;
-                        }
-
-                        string type = match.Groups["type"].Value;
-                        int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
-                        Debug.Assert(totalVariableCount >= 2);
-
-                        string[] starsArray = new string[totalVariableCount];
-                        string[] variableNameArray = new string[totalVariableCount];
-                        string[] arrayPartArray = new string[totalVariableCount];
-                        {
-                           for (int i = 0; i < totalVariableCount - 1; i++) {
-                              starsArray[i] = match.Groups["stars"].Captures[i].Value;
-                              variableNameArray[i] = match.Groups["variableName"].Captures[i].Value;
-                              arrayPartArray[i] = match.Groups["arrayPart"].Captures[i].Value;
-                           }
-
-                           starsArray[totalVariableCount - 1] = match.Groups["lastVariableStars"].Value;
-                           variableNameArray[totalVariableCount - 1] = match.Groups["lastVariableVariableName"].Value;
-                           arrayPartArray[totalVariableCount - 1] = match.Groups["lastVariableArrayPart"].Value;
-                        }
-
-                        file = file.Remove(match.Index, match.Length)
-                                 .Insert(match.Index, GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(type, starsArray, variableNameArray, arrayPartArray));
-                     }
-                  }
-
                   // pretending that in the original c code there is no csharp only keywords.
                   // e.g. allow int to stay as int but dont allow uint to stay as uint
                   //    typedef char uint;
@@ -698,6 +658,38 @@ namespace Main {
                            dequeuedCurrentElementType = FrontierDequeuedCurrentElementType.Union;
                         } else {
                            throw new UnreachableException("while condition already checked if there is any element in the frontiers");
+                        }
+                     }
+
+                     // comma operator. converting the normal declaration form.
+                     {
+                        for (; ; ) {
+                           Match match = variableDeclarationWithCommaOperator.Match(fields);
+                           if (!match.Success) {
+                              break;
+                           }
+
+                           string type = match.Groups["type"].Value;
+                           int totalVariableCount = match.Groups["variable"].Captures.Count + 1; // +1 for the last variable
+                           Debug.Assert(totalVariableCount >= 2);
+
+                           string[] starsArray = new string[totalVariableCount];
+                           string[] variableNameArray = new string[totalVariableCount];
+                           string[] arrayPartArray = new string[totalVariableCount];
+                           {
+                              for (int i = 0; i < totalVariableCount - 1; i++) {
+                                 starsArray[i] = match.Groups["stars"].Captures[i].Value;
+                                 variableNameArray[i] = match.Groups["variableName"].Captures[i].Value;
+                                 arrayPartArray[i] = match.Groups["arrayPart"].Captures[i].Value;
+                              }
+
+                              starsArray[totalVariableCount - 1] = match.Groups["lastVariableStars"].Value;
+                              variableNameArray[totalVariableCount - 1] = match.Groups["lastVariableVariableName"].Value;
+                              arrayPartArray[totalVariableCount - 1] = match.Groups["lastVariableArrayPart"].Value;
+                           }
+
+                           fields = fields.Remove(match.Index, match.Length)
+                                          .Insert(match.Index, GetSingleVariableDeclarationsFromCommaOperatorDeclaredVariablesStillInC(type, starsArray, variableNameArray, arrayPartArray));
                         }
                      }
 
@@ -2304,7 +2296,7 @@ namespace Main {
             no-show-progress: Do not show progress text.
             include-extern-functions: Include functions that are declared as extern in the csharp output if they are exposed in the so file.
          Examples:
-            ctocs hfiles file1.h file2.h,, sofile libexample.so phfiles pfile1.h pfile2.h,,
+            ctocs hfiles file1.h file2.h,, sofile libexample.so phfiles pfile.i,,
          """;
          Console.WriteLine(help);
       }
