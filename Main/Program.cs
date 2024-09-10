@@ -55,6 +55,14 @@ using System.Text.RegularExpressions;
 //
 //          [DllImport("User32.dll")]
 //          internal static extern bool PtInRect(ref Rect r, Point p);
+//       try imgui glfw opengl backend
+//       you can get the list of defines using compiler. clang -E -dM. -dM dumps the list of defines. use this instead of header file itself when searching for defines.
+//       single pointer structs in function parameters, i think the can be marshalled using ref.
+//          create two dllimport entries for each single pointer struct paramter for those functions (in total 2 ^ number of single pointer struct parameters)
+//          if structs lives in managed memory use the ref one, if struct lives in unmanaged memory use the pointer one.
+//          having a ref overload of the function is more convenient to use.
+//          i think thats how i am gonna handle custom struct pointers in function parameters.
+//          what if level of indirection is higher than one, idk kev
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -296,7 +304,7 @@ namespace Main {
          Regex openCurlyBraceRegex = new Regex(@"\{");
          Regex noNewBeforeCurlyBraceRegex = new Regex(@"(?<!new\(\)\s*)\{"); // if "{" preceded by new() then dont match it.
          Regex dotMemberEqualsRegex = new Regex(@"[{\s,](?<dot>\.)\s*\w+\s*="); // used to remove dots from global const variables
-         Regex sizeofRegex = new Regex(@"sizeof\s*\(\s*(?<content>\w+[\w\s]*?[*\s]*?)\s*\)");
+         Regex sizeofRegex = new Regex(@"\bsizeof\s*\(\s*(?<content>\w+[\w\s]*?[*\s]*?)\s*\)");
 
          HashSet<string> opaqueStructs = new HashSet<string>();
          HashSet<string> opaqueUnions = new HashSet<string>();
@@ -330,46 +338,46 @@ namespace Main {
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             // allow zero stars
             Regex functionArgFunctionPointerRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]*?)\s*\(\s*(?<stars>[*\s]*?)\s*(?<parameterName>\w+)?(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*,"); // expects a comma at the end just like functionArgRegex does
-            Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
-            Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
-            Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
-            Regex greedyTypedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex structRegex = new Regex(@"\bstruct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
+            Regex greedyStructRegex = new Regex(@"\bstruct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
+            Regex typedefStructRegex = new Regex(@"\btypedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyTypedefStructRegex = new Regex(@"\btypedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex structMemberRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*(?:\s*:\s*(?<bitfieldValue>\w+))?\s*;"); // functionArgRegex vs this. "type" has to end with a star or white space here. name is not optional
-            Regex anonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
-            Regex greedyAnonymousStructRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
-            Regex anonymousUnionRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs. use GetWholeStruct() function
-            Regex greedyAnonymousUnionRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
-            Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
-            Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
-            Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
-            Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
-            Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>\w+[\w\s]*?[*\s]+?)\s*(?<newType>\w+)\s*;");
+            Regex anonymousStructRegex = new Regex(@"\bstruct\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousStructRegex = new Regex(@"\bstruct\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
+            Regex anonymousUnionRegex = new Regex(@"\bunion\s*\{(?<fields>.*?)\}\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs. use GetWholeStruct() function
+            Regex greedyAnonymousUnionRegex = new Regex(@"\bunion\s*\{(?<fields>.*)\}\s*;", RegexOptions.Singleline);
+            Regex anonymousStructWithVariableDeclarationRegex = new Regex(@"\bstruct\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"\bstruct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
+            Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"\bunion\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
+            Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"\bunion\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
+            Regex typedefRegex = new Regex(@"\btypedef\s+(?<originalType>\w+[\w\s]*?[*\s]+?)\s*(?<newType>\w+)\s*;");
             Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*(?<size>\[[\w\[\]\s+\-*/^%&()|~]+?\])\s*;"); // size contains everything between the brackets and the brackets. int foo[5][7] -> size = "[5][7]"
-            Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
-            Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
-            Regex typedefUnionRegex = new Regex(@"typedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
-            Regex greedyTypedefUnionRegex = new Regex(@"typedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
-            Regex enumRegex = new Regex(@"enum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
-            Regex typedefEnumRegex = new Regex(@"typedef\s+enum(?:\s+(?<name>\w+))?\s*\{(?<members>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
+            Regex unionRegex = new Regex(@"\bunion\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
+            Regex greedyUnionRegex = new Regex(@"\bunion\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
+            Regex typedefUnionRegex = new Regex(@"\btypedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
+            Regex greedyTypedefUnionRegex = new Regex(@"\btypedef\s+union(?:\s+(?<name>\w+))?\s*\{(?<fields>.*)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
+            Regex enumRegex = new Regex(@"\benum\s+(?<name>\w+)\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
+            Regex typedefEnumRegex = new Regex(@"\btypedef\s+enum(?:\s+(?<name>\w+))?\s*\{(?<members>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline);
             Regex enumMemberRegex = new Regex(@"(?<identifier>\w+)(?:\s*=\s*(?<value>[\w\s'()+\-*\/&|%<>!\^~]+?))?\s*,"); // regex reqiures a comma at the end. i will manually add a comma to the end of the membersString so it doesnt miss the last element
-            Regex anonymousEnumRegex = new Regex(@"enum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
-            Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"(?<!typedef\s+)enum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // do not match if starts with typedef
+            Regex anonymousEnumRegex = new Regex(@"\benum\s*\{(?<members>.*?)\}\s*;", RegexOptions.Singleline);
+            Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"(?<!typedef\s+)\benum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // do not match if starts with typedef
             // TODO: return type function pointer should be handled seperately.
-            Regex typedefFunctionPointerRegex = new Regex(@"typedef\s+(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>\*[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*;");
+            Regex typedefFunctionPointerRegex = new Regex(@"\btypedef\s+(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>\*[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*;");
             // apparently you can put the keywords in any order. const int. int const. const static int.
             // i only support the ones that start with const keyword and between const and type these words are okay (static|volatile|register).
-            Regex constVariableRegex = new Regex(@"const\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
+            Regex constVariableRegex = new Regex(@"\bconst\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
             // i did a little hack in the arrayPart. it was optional at first but regex has to capture it so i know what variable group it belongs to. if regex doesnt capture it indices messes up and i no further know what capture belongs to what.
             //    so it is required but it may match empty string which is not an array at all. so you need to check if arrayPart is empty to find out if it actually matched
             Regex variableDeclarationWithCommaOperator = new Regex(@"(?<type>\w+[\w\s]*?)\s*(?<variable>(?<stars>[\s*]*?)(?<=[\s*,])(?<variableName>\w+)\s*(?<arrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|()))\s*,)+(?<lastVariable>(?<lastVariableStars>[\s*]*?)(?<=[\s*,])(?<lastVariableVariableName>\w+)\s*(?<lastVariableArrayPart>(?(?=\[)(\[[\w\[\]\s+\-*/^%&()|~]+?\])|())))\s*;"); // at least one comma operated value is required
             // NOTE: those matches may match transparent types. so in order to understand if it is opaque or not check the structDatas dictionary if the struct name is present there.
-            Regex opaqueStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*;");
+            Regex opaqueStructRegex = new Regex(@"\bstruct\s+(?<name>\w+)\s*;");
             // i would make the regex like this typedef\s+struct\s+(?<name>\w+)(\s+\w+)?\s*; notice the optional typedefdName but i didnt since the opaqueStructRegex already detects such situations
-            Regex typedefOpaqueStructRegex = new Regex(@"typedef\s+struct\s+(?<name>\w+)\s+\w+\s*;");
-            Regex opaqueUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*;");
-            Regex typedefOpaqueUnionRegex = new Regex(@"typedef\s+union\s+(?<name>\w+)\s+\w+\s*;");
-            Regex opaqueEnumRegex = new Regex(@"union\s+(?<name>\w+)\s*;");
-            Regex typedefOpaqueEnumRegex = new Regex(@"typedef\s+enum\s+(?<name>\w+)\s+\w+\s*;");
+            Regex typedefOpaqueStructRegex = new Regex(@"\btypedef\s+struct\s+(?<name>\w+)\s+\w+\s*;");
+            Regex opaqueUnionRegex = new Regex(@"\bunion\s+(?<name>\w+)\s*;");
+            Regex typedefOpaqueUnionRegex = new Regex(@"\btypedef\s+union\s+(?<name>\w+)\s+\w+\s*;");
+            Regex opaqueEnumRegex = new Regex(@"\bunion\s+(?<name>\w+)\s*;");
+            Regex typedefOpaqueEnumRegex = new Regex(@"\btypedef\s+enum\s+(?<name>\w+)\s+\w+\s*;");
             foreach (var kvp in preprocessedHeaderFiles) {
                string file = kvp.Value; // file contents
                string path = kvp.Key;
@@ -1558,7 +1566,7 @@ namespace Main {
             cFileBuilder.AppendLine();
             cFileBuilder.AppendLine("\t// STRUCTS");
             foreach (string structName in structsThatArePresentInOriginalCCode) {
-               if (!structName.StartsWith('_')) {
+               if (!structName.StartsWith('_')) { // TODO: if a function starts with _ then put it in your report. tell that sizeof that struct is not calculated.
                   cFileBuilder.AppendLine($"\tprintf(\"|{structName},%lu|\\n\", sizeof({(shouldStructsOrUnionsInOriginalCCodeUseStructKeyword[structName] ? "struct " : "")}{structName}));");
                }
             }
@@ -1615,8 +1623,8 @@ namespace Main {
          }
          StringBuilder csOutput = new StringBuilder(4 * 1024 * 1024); // 4MB
          csOutput.AppendLine($"/**");
-         csOutput.AppendLine($" * This file is auto generated by ctocs (c to cs)");
-         csOutput.AppendLine($" * https://github.com/apilatosba/ctocs");
+         csOutput.AppendLine($" *   This file is auto generated by ctocs (c to cs)");
+         csOutput.AppendLine($" *   https://github.com/apilatosba/ctocs");
          csOutput.AppendLine($"**/");
          csOutput.AppendLine($"using System;");
          csOutput.AppendLine($"using System.Runtime.InteropServices;");
@@ -2058,6 +2066,10 @@ namespace Main {
 
             csOutput.AppendLine();
             csOutput.AppendLine($"\t// SAFE WRAPPER");
+            csOutput.AppendLine($"\t/**");
+            csOutput.AppendLine($"\t *    The functions here may not always work depending on how the function uses the pointer");
+            csOutput.AppendLine($"\t *    You should know when to use these functions instead of the functions in Native");
+            csOutput.AppendLine($"\t**/");
             csOutput.AppendLine("\tpublic static unsafe partial class Safe {");
 
             // function parameters with single star pointers and single dimension arrays
