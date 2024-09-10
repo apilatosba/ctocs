@@ -50,6 +50,11 @@ using System.Text.RegularExpressions;
 //       function pointers as struct members
 //       comma operator on global const variables
 //       ImVector_ImDrawListPtr cant make it to csharp output but it should
+//       in functions a parameter with single star pointer can be directly marshalled  using the ref keyword.
+//          BOOL PtInRect(const RECT *lprc, POINT pt); 
+//
+//          [DllImport("User32.dll")]
+//          internal static extern bool PtInRect(ref Rect r, Point p);
 namespace Main {
    class Program {
       static void Main(string[] args) {
@@ -876,7 +881,7 @@ namespace Main {
                         string name = structMemberMatch.Groups["name"].Value;
                         string type = structMemberMatch.Groups["type"].Value;
                         bool isBitfield = structMemberMatch.Groups["bitfieldValue"].Success;
-                        type = type.Trim();
+                        type = RemoveConsts(type, out _).Trim();
                         name = EnsureVariableIsNotAReservedKeyword(name);
 
                         structOrUnionMembers.Add((new StructMember() {
@@ -891,7 +896,7 @@ namespace Main {
                         string name = structMemberArrayMatch.Groups["name"].Value;
                         string type = structMemberArrayMatch.Groups["type"].Value;
                         string size = structMemberArrayMatch.Groups["size"].Value;
-                        type = type.Trim();
+                        type = RemoveConsts(type, out _).Trim();
                         name = EnsureVariableIsNotAReservedKeyword(name);
 
                         structOrUnionMembers.Add((new StructMemberArray() {
@@ -2886,6 +2891,7 @@ namespace Main {
                opaqueStructs.Contains(type) ||
                opaqueUnions.Contains(type) ||
                opaqueEnums.Contains(type) ||
+               TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(type) ||
                TypeInfo.builtinCSharpTypes.Contains(type);
 
          // if (!structDatas.ContainsKey(type) && !unionDatas.ContainsKey(type) && !enumDatas.ContainsKey(type) && !functionPointerDatas.ContainsKey(type) && !TypeInfo.builtinCSharpTypes.Contains(type)) {
