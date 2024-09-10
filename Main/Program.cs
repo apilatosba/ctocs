@@ -329,7 +329,7 @@ namespace Main {
             Regex functionArgRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*,"); // parameter name optional.
             Regex functionArgArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]*?)\s*(?:(?<=[\s*])(?<parameterName>\w+))?\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\])\s*,"); // before applying this regex apply RemoveConsts() function consider this: const char* const items[MAX + MIN]. there is a star between two const keywords
             // allow zero stars
-            Regex functionArgFunctionPointerRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>[*\s]*?)\s*(?<parameterName>\w+)?(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*,"); // expects a comma at the end just like functionArgRegex does
+            Regex functionArgFunctionPointerRegex = new Regex(@"(?<returnType>\w+[\w\s]*?[*\s]*?)\s*\(\s*(?<stars>[*\s]*?)\s*(?<parameterName>\w+)?(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*,"); // expects a comma at the end just like functionArgRegex does
             Regex structRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions.
             Regex greedyStructRegex = new Regex(@"struct\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline | RegexOptions.Multiline);
             Regex typedefStructRegex = new Regex(@"typedef\s+struct(?:\s+(?<name>\w+))?\s*\{(?<fields>.*?)\}\s*(?<typedefdName>\w+)\s*;", RegexOptions.Singleline | RegexOptions.Multiline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
@@ -1347,7 +1347,7 @@ namespace Main {
                            // unknown type found. so i should remove this struct otherwise generated c# wont compiler
                            structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
                            removed = true;
-                           report.removedStructsBecauseTheyContainUnknownTypes.Add(structName);
+                           report.removedStructsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = structName, unknownType = type });
                            break;
                         }
                      }
@@ -1376,7 +1376,7 @@ namespace Main {
                         if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            unionDatas.Remove(unionName);
                            removed = true;
-                           report.removedUnionsBecauseTheyContainUnknownTypes.Add(unionName);
+                           report.removedUnionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = unionName, unknownType = type });
                            break;
                         }
                      }
@@ -1396,7 +1396,7 @@ namespace Main {
                         if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionPointerDatas.Remove(functionPointerName);
                            removed = true;
-                           report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
+                           report.removedDelegatesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionPointerName, unknownType = returnType });
                            break;
                         }
                      }
@@ -1417,7 +1417,7 @@ namespace Main {
                            if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                               functionPointerDatas.Remove(functionPointerName);
                               removed = true;
-                              report.removedDelegatesBecauseTheyContainUnknownTypes.Add(functionPointerName);
+                              report.removedDelegatesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionPointerName, unknownType = type });
                               break;
                            }
                         }
@@ -1455,7 +1455,7 @@ namespace Main {
                      if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                         functionDatas.Remove(functionName);
                         functionRemoved = true;
-                        report.removedFunctionsBecauseTheyContainUnknownTypes.Add(functionName);
+                        report.removedFunctionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionName, unknownType = returnType });
                         break;
                      }
                   }
@@ -1476,7 +1476,7 @@ namespace Main {
                         if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionDatas.Remove(functionName);
                            functionRemoved = true;
-                           report.removedFunctionsBecauseTheyContainUnknownTypes.Add(functionName);
+                           report.removedFunctionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionName, unknownType = type });
                            break;
                         }
                      }
@@ -1509,7 +1509,7 @@ namespace Main {
                   if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                      globalConstVariableDatas.Remove(name);
                      globalConstVariableRemoved = true;
-                     report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Add(name);
+                     report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = name, unknownType = type });
                      break;
                   }
                }
@@ -1620,6 +1620,7 @@ namespace Main {
          csOutput.AppendLine($"**/");
          csOutput.AppendLine($"using System;");
          csOutput.AppendLine($"using System.Runtime.InteropServices;");
+         csOutput.AppendLine($"using static {libName}.Native;"); // If enums or structs contain enums then this is necessary
          csOutput.AppendLine();
          csOutput.AppendLine($"namespace {libName} {{");
 
@@ -1635,7 +1636,7 @@ namespace Main {
 
                if (functionPointerData.amountOfStars == 1) {
                   csOutput.AppendLine("\t[UnmanagedFunctionPointer(CallingConvention.Cdecl)]");
-                  csOutput.AppendLine($"\tpublic unsafe delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? ", __arglist" : "")});");
+                  csOutput.AppendLine($"\tpublic unsafe delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? "/*, __arglist NOTE: arglist is not supported. you have to create a delegate for each different signature*/" : "")});");
                } else {
                   // TODO: idk if above implementation would work for star amount other than 1. test it if it works then you can remove the if check.
                   //       maybe if it comes from a function parameter then i can declare the delegate as above and put the necessary stars in the function parameter. idk if it will work tho. need testing.
@@ -2191,40 +2192,40 @@ namespace Main {
             if (report.removedStructsBecauseTheyContainUnknownTypes.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Structs that contain unknown types thus not included in the csharp output:");
-               foreach (string structName in report.removedStructsBecauseTheyContainUnknownTypes) {
-                  reportBuilder.AppendLine($"\t{structName}");
+               foreach (RemovedElementWithUnknownTypeData data in report.removedStructsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{$"{data.name},",-50}{data.unknownType} (unknown type)");
                }
             }
 
             if (report.removedUnionsBecauseTheyContainUnknownTypes.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Unions that contain unknown types thus not included in the csharp output:");
-               foreach (string unionName in report.removedUnionsBecauseTheyContainUnknownTypes) {
-                  reportBuilder.AppendLine($"\t{unionName}");
+               foreach (RemovedElementWithUnknownTypeData data in report.removedUnionsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{$"{data.name},",-50}{data.unknownType} (unknown type)");
                }
             }
 
             if (report.removedFunctionsBecauseTheyContainUnknownTypes.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Functions that contain unknown types thus not included in the csharp output:");
-               foreach (string functionName in report.removedFunctionsBecauseTheyContainUnknownTypes) {
-                  reportBuilder.AppendLine($"\t{functionName}");
+               foreach (RemovedElementWithUnknownTypeData data in report.removedFunctionsBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{$"{data.name},",-50}{data.unknownType} (unknown type)");
                }
             }
 
             if (report.removedDelegatesBecauseTheyContainUnknownTypes.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Delegates that contain unknown types thus not included in the csharp output:");
-               foreach (string delegateName in report.removedDelegatesBecauseTheyContainUnknownTypes) {
-                  reportBuilder.AppendLine($"\t{delegateName}");
+               foreach (RemovedElementWithUnknownTypeData data in report.removedDelegatesBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{$"{data.name},",-50}{data.unknownType} (unknown type)");
                }
             }
 
             if (report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Count > 0) {
                reportBuilder.AppendLine();
                reportBuilder.AppendLine("Global const variables that contain unknown types thus not included in the csharp output:");
-               foreach (string globalConstVariableName in report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes) {
-                  reportBuilder.AppendLine($"\t{globalConstVariableName}");
+               foreach (RemovedElementWithUnknownTypeData data in report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes) {
+                  reportBuilder.AppendLine($"\t{$"{data.name},",-50}{data.unknownType} (unknown type)");
                }
             }
 
@@ -2322,11 +2323,21 @@ namespace Main {
          bool isPointer = result.EndsWith('*');
 
          result = isPointer ? RemoveStarsFromEnd(result) : result;
+         // Explanation why i have this variable
+         //
+         //    typedef _IO_FILE FILE;
+         //    typedef FILE* FileHandle;
+         //
+         //    in this sceneario FileHandle should be converted to _IO_FILE* and not FILE*
+         //    starCountOnResolvedTypes counts how many stars are in between FileHandle and _IO_FILE. in this case it is one.
+         int starCountOnResolvedTypes = 0;
          // this loop will stuck in an infinite loop if there is any cycles in the typedefs. but i assume that the provided header files compiles without any errors (that is a valid c program) which means there is no cyclic typedefs.
          for (; ; ) {
             if (!typedefs.TryGetValue(result, out string newType)) {
                break;
             }
+            starCountOnResolvedTypes += CountStarsAtEndIgnoreWhiteSpace(newType);
+            newType = RemoveStarsFromEnd(newType);
             result = newType;
          }
 
@@ -2352,6 +2363,8 @@ namespace Main {
             }
             result = resultBuilder.ToString();
          }
+
+         result += new string('*', starCountOnResolvedTypes);
 
          return result;
       }
