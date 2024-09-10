@@ -343,7 +343,7 @@ namespace Main {
             Regex greedyAnonymousStructWithVariableDeclarationRegex = new Regex(@"struct\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
             Regex anonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // this regex stops early if struct contains complex members. structs inside of structs or unions. use GetWholeStruct() function
             Regex greedyAnonymousUnionWithVariableDeclarationRegex = new Regex(@"union\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline);
-            Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>\w+[\w\s]*?)\s+(?<newType>\w+)\s*;");
+            Regex typedefRegex = new Regex(@"typedef\s+(?<originalType>\w+[\w\s]*?[*\s]+?)\s*(?<newType>\w+)\s*;");
             Regex structMemberArrayRegex = new Regex(@"(?<type>\w+[\w\s]*?[*\s]+?)\s*(?<name>\w+)\s*(?<size>\[[\w\[\]\s+\-*/^%&()|~]+?\])\s*;"); // size contains everything between the brackets and the brackets. int foo[5][7] -> size = "[5][7]"
             Regex unionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*?)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline); // this regex stops early if union contains complex members. unions inside of unions or structs.
             Regex greedyUnionRegex = new Regex(@"union\s+(?<name>\w+)\s*\{(?<fields>.*)\}\s*(?<variableName>\w+)?\s*;", RegexOptions.Singleline);
@@ -413,9 +413,8 @@ namespace Main {
                   foreach (Match match in matches) {
                      string originalType = match.Groups["originalType"].Value;
                      string newType = match.Groups["newType"].Value;
-                     originalType = originalType.Trim();
-                     // originalType = EnsureTypeIsNotAReservedKeyword(originalType);
-                     // newType = EnsureTypeIsNotAReservedKeyword(newType);
+                     originalType = RemoveModifiersFromType(originalType);
+                     originalType = GetOneWayToRepresentAType(originalType);
 
                      // NOTE: redefinition is allowed if the new type is the same as the old type
                      {
@@ -498,11 +497,7 @@ namespace Main {
                         functionArgs = RemoveConsts(functionArgs, out _);
                      }
 
-                     returnType = Regex.Replace(returnType, @"\binline\b", "");
-                     returnType = Regex.Replace(returnType, @"\bstatic\b", "");
-                     returnType = Regex.Replace(returnType, @"\bvolatile\b", "");
-                     returnType = Regex.Replace(returnType, @"\bextern\b", "");
-                     returnType = RemoveConsts(returnType, out _).Trim();
+                     returnType = RemoveModifiersFromType(returnType);
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
                         functionArgs,
@@ -2366,7 +2361,7 @@ namespace Main {
       }
 
       static string RemoveStarsFromEnd(string s) {
-         return s.TrimEnd('*', ' ');
+         return s.TrimEnd('*', ' ', '\t', '\n', '\r');
       }
 
       static int CountStarsAtEndIgnoreWhiteSpace(string s) {
@@ -2968,6 +2963,30 @@ namespace Main {
             }
          }
 
+         return result;
+      }
+
+      static string RemoveModifiersFromType(in string ctype) {
+         string result = ctype;
+         result = Regex.Replace(result, @"\binline\b", "");
+         result = Regex.Replace(result, @"\bstatic\b", "");
+         result = Regex.Replace(result, @"\bvolatile\b", "");
+         result = Regex.Replace(result, @"\bextern\b", "");
+         result = RemoveConsts(result, out _).Trim();
+         return result;
+      }
+
+      /// <summary>
+      /// this is used in typedefs dictionary. strings have to match
+      /// "int*  * " -> "int**"
+      /// "long int *" -> "long int*"
+      /// </summary>
+      static string GetOneWayToRepresentAType(in string type) {
+         string result = type;
+         int starCount = CountStarsAtEndIgnoreWhiteSpace(result);
+         result = ConvertWhiteSpacesToSingleSpace(result);
+         result = RemoveStarsFromEnd(result);
+         result += new string('*', starCount);
          return result;
       }
    }
