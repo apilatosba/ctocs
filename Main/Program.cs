@@ -13,7 +13,6 @@ using System.Text.RegularExpressions;
 //       if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
 //          if you see a type resolving to a __builtin_ then put this in your report i guess.
 //       it looks like char* can be directly marshaled to string in some cases. i think it can be done in cases where the char* is unmodified by the function. needs more investigation tho
-//       when i remove the enum prefix from members check if the rest of the identifier is a valid c# identifier. if not then dont delete the prefix i guess.
 //       apparently function declarations in c allows function name to be enclosed with brackets. i should support this.
 //       const struct members. try this if it is interop friendly then do it:
 //          in c:
@@ -305,6 +304,7 @@ namespace Main {
          Regex noNewBeforeCurlyBraceRegex = new Regex(@"(?<!new\(\)\s*)\{"); // if "{" preceded by new() then dont match it.
          Regex dotMemberEqualsRegex = new Regex(@"[{\s,](?<dot>\.)\s*\w+\s*="); // used to remove dots from global const variables
          Regex sizeofRegex = new Regex(@"\bsizeof\s*\(\s*(?<content>\w+[\w\s]*?[*\s]*?)\s*\)");
+         Regex csharpIdentifierRegex = new Regex(@"^[\p{L}_][\p{L}\p{N}_]*$"); // used when removing enum prefixes
 
          HashSet<string> opaqueStructs = new HashSet<string>();
          HashSet<string> opaqueUnions = new HashSet<string>();
@@ -998,11 +998,28 @@ namespace Main {
                            break;
                         }
 
+                        // This doesnt ensure that the identifier is unique.
+                        //
+                        //    enum EE {
+                        //       EE_0,
+                        //       _0,
+                        //       EE0, 
+                        //    };
+                        //
+                        //    all of these will get _0 identifier. but since no c coder writes such code it is fine Clueless
+                        //    if you want to solve this iterate through all the enum members if a member with the same identifier exist then add one more underscore, repeat until you get an unique identifier
                         if (firstWordMatchThatStartWithEnumName.Value.Length > /*!=*/ enumName.Length) {
                            if (firstWordMatchThatStartWithEnumName.Value[enumName.Length] == '_') {
-                              membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length + 1);
+                              if (IsValidCSharpIdentifier(firstWordMatchThatStartWithEnumName.Value.Substring(enumName.Length + 1), csharpIdentifierRegex)) {
+                                 membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length + 1);
+                              } else {
+                                 membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length); // keep the underscore
+                              }
                            } else {
                               membersString = membersString.Remove(firstWordMatchThatStartWithEnumName.Index, enumName.Length);
+                              if (!IsValidCSharpIdentifier(firstWordMatchThatStartWithEnumName.Value.Substring(enumName.Length), csharpIdentifierRegex)) {
+                                 membersString = membersString.Insert(firstWordMatchThatStartWithEnumName.Index, "_"); // add an underscore
+                              }
                            }
                         }
                      }
@@ -3013,6 +3030,14 @@ namespace Main {
          result = RemoveStarsFromEnd(result);
          result += new string('*', starCount);
          return result;
+      }
+
+      static bool IsValidCSharpIdentifier(in string identifier, Regex csharpIdentifierRegex) {
+         if (string.IsNullOrEmpty(identifier)) {
+            return false;
+         }
+
+         return csharpIdentifierRegex.IsMatch(identifier) && !TypeInfo.csharpReservedKeywords.Contains(identifier);
       }
    }
 }
