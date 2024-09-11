@@ -1008,6 +1008,7 @@ namespace Main {
                         //
                         //    all of these will get _0 identifier. but since no c coder writes such code it is fine Clueless
                         //    if you want to solve this iterate through all the enum members if a member with the same identifier exist then add one more underscore, repeat until you get an unique identifier
+                        //       but this solution doesnt make sense because how can user understand which is which. so in that case best approach i think is to leave the prefix as is
                         if (firstWordMatchThatStartWithEnumName.Value.Length > /*!=*/ enumName.Length) {
                            if (firstWordMatchThatStartWithEnumName.Value[enumName.Length] == '_') {
                               if (IsValidCSharpIdentifier(firstWordMatchThatStartWithEnumName.Value.Substring(enumName.Length + 1), csharpIdentifierRegex)) {

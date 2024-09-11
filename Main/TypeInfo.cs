@@ -17,14 +17,14 @@ namespace Main {
          { "unsigned long long", "ulong" },
          { "unsigned long long int", "ulong" },
          { "short int", "short" },
-         { "long", "nint" },
-         { "long int", "nint" },
-         { "long long", "long" },
+         { "long", "long" },     // should be nint to support both 32 and 64 bit systems but nint is not allowed in fixed size buffers as type. long only works with 64 bit systems.
+         { "long int", "long" }, // should be nint to support both 32 and 64 bit systems but nint is not allowed in fixed size buffers as type. long only works with 64 bit systems.
+         { "long long", "long" },   // NOTE: i think if there is long keyword then the size varies depending on whether the system is 32 bit or 64 bit system Clueless
          { "long long int", "long" },
-         { "long unsigned int", "uint" },
+         { "long unsigned int", "ulong" },
          { "long double", "double" },
-         { "__builtin_va_list", "RuntimeArgumentHandle" },  // basicTypes OMEGALUL
-         { "va_list", "RuntimeArgumentHandle" },            // basicTypes OMEGALUL
+         { "__builtin_va_list", "ArgIterator" },  // basicTypes OMEGALUL
+         { "va_list", "ArgIterator" },            // basicTypes OMEGALUL
       };
 
       public readonly static HashSet<string> allowedFixedSizeBufferTypes = new HashSet<string>() {
@@ -62,7 +62,7 @@ namespace Main {
          "object",
          "decimal",
          "void",
-         "RuntimeArgumentHandle", // builtin OMEGALUL
+         "ArgIterator", // builtin OMEGALUL
       };
 
       // NOTE: note on the va_list RuntimeArgumentHandle approach. i think this only works on windows. i didnt test it. when i tried it on debian12 it said "System.PlatformNotSupportedException: ArgIterator is not supported on this platform."
