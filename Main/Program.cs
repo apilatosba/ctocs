@@ -1,4 +1,5 @@
-﻿using System;
+﻿using Microsoft.CodeAnalysis.CSharp.Scripting;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -6,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 // TODO: comments
 //       anonymous unions and anonymous structs access syntax.
@@ -64,7 +66,7 @@ using System.Text.RegularExpressions;
 //          what if level of indirection is higher than one, idk kev
 namespace Main {
    class Program {
-      static void Main(string[] args) {
+      static async Task Main(string[] args) {
          if (args.Length == 0) {
             PrintHelpAndExit();
          }
@@ -326,6 +328,7 @@ namespace Main {
          Dictionary<string /*enum name*/, EnumData> enumDatasButPrefixesAreNotRemoved = new Dictionary<string, EnumData>();
          List<List<EnumMember>> anonymousEnums = new List<List<EnumMember>>();
          Dictionary<string, bool> shouldStructsOrUnionsInOriginalCCodeUseStructKeyword = new Dictionary<string, bool>();
+         Dictionary<string /*name of fixed buffer struct*/, FixedBufferStructData> fixedBufferStructDatas = new Dictionary<string, FixedBufferStructData>();
          {
             // TODO: handle typedef. if there is typedef keyword the ending has to be with semicolon { not allowed
             //       what is this? i forgor. what is typedefd function? omegaluliguess
@@ -502,7 +505,7 @@ namespace Main {
                         functionArgs = "";
                      } else {
                         functionArgs += ','; // add a comma to the end so the last argument can be processed. functionArgRegex requires a comma at the end.
-                        functionArgs = RemoveConsts(functionArgs, out _);
+                        functionArgs = RemoveModifiersFromType(functionArgs);
                      }
 
                      returnType = RemoveModifiersFromType(returnType);
@@ -552,9 +555,9 @@ namespace Main {
                         functionArgs = "";
                      } else {
                         functionArgs += ',';
-                        functionArgs = RemoveConsts(functionArgs, out _);
+                        functionArgs = RemoveModifiersFromType(functionArgs);
                      }
-                     returnType = RemoveConsts(returnType, out _).Trim();
+                     returnType = RemoveModifiersFromType(returnType);
 
                      List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
                         functionArgs,
@@ -884,7 +887,7 @@ namespace Main {
                         string name = structMemberMatch.Groups["name"].Value;
                         string type = structMemberMatch.Groups["type"].Value;
                         bool isBitfield = structMemberMatch.Groups["bitfieldValue"].Success;
-                        type = RemoveConsts(type, out _).Trim();
+                        type = RemoveModifiersFromType(type);
                         name = EnsureVariableIsNotAReservedKeyword(name);
 
                         structOrUnionMembers.Add((new StructMember() {
@@ -899,14 +902,31 @@ namespace Main {
                         string name = structMemberArrayMatch.Groups["name"].Value;
                         string type = structMemberArrayMatch.Groups["type"].Value;
                         string size = structMemberArrayMatch.Groups["size"].Value;
-                        type = RemoveConsts(type, out _).Trim();
+                        type = RemoveModifiersFromType(type);
                         name = EnsureVariableIsNotAReservedKeyword(name);
 
-                        structOrUnionMembers.Add((new StructMemberArray() {
+                        StructMemberArray structMemberArray = new StructMemberArray() {
                            name = name,
                            type = type,
                            size = size
-                        }, structMemberArrayMatch.Index));
+                        };
+                        
+                        if (TypeInfo.allowedFixedSizeBufferTypes.Contains(type)) {
+                           structOrUnionMembers.Add((structMemberArray, structMemberArrayMatch.Index));
+                        } else {
+                           string fixedSizeBufferStructName = GetStructNameOfFixedBufferUserDefinedType(name, structOrUnionName, type); // FIXME: using the "type" before resolving it. it should be used after it is resolved. this causes the name of the struct to be different than it should be if the "type" resolves to a different type.
+                           fixedBufferStructDatas.TryAdd(fixedSizeBufferStructName, new FixedBufferStructData() {
+                              structName = fixedSizeBufferStructName,
+                              typeOfFixedBuffer = type,
+                              underlyingArray = structMemberArray
+                           });
+
+                           structOrUnionMembers.Add((new StructMember() {
+                              name = name,
+                              type = fixedSizeBufferStructName,
+                              isBitfield = false,
+                           }, structMemberArrayMatch.Index));
+                        }
                      }
 
                      structOrUnionMembers.Sort((a, b) => a.matchIndex.CompareTo(b.matchIndex));
@@ -1283,6 +1303,21 @@ namespace Main {
                   data.type = ResolveTypedefsAndApplyFullConversion(data.type, typedefs);
                }
             }
+
+            // fixed buffer structs
+            {
+               if (showProgress) {
+                  Console.WriteLine("\tFixed buffer structs...");
+               }
+
+               // foreach (StructMemberArray fixedBufferPreparation in fixedBufferStructDatasPreparationList) {
+               //    fixedBufferPreparation.type = ResolveTypedefsAndApplyFullConversion(fixedBufferPreparation.type, typedefs);
+               // }
+
+               foreach (FixedBufferStructData data in fixedBufferStructDatas.Values) {
+                  data.typeOfFixedBuffer = ResolveTypedefsAndApplyFullConversion(data.typeOfFixedBuffer, typedefs);
+               }
+            }
          }
 
          // bitfields with no variable declaration shenanigans
@@ -1349,6 +1384,10 @@ namespace Main {
                   ultimateList.Add((kvp, UltimateListElementType.Delegate));
                }
 
+               foreach (var kvp in fixedBufferStructDatas) {
+                  ultimateList.Add((kvp, UltimateListElementType.FixedBufferStruct));
+               }
+
                bool removed = false;
                foreach ((object obj, UltimateListElementType elementType) in ultimateList) {
                   if (elementType == UltimateListElementType.Struct) {
@@ -1369,7 +1408,7 @@ namespace Main {
                         type = RemoveStarsFromEnd(type);
 
                         // does that type exist?
-                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            // unknown type found. so i should remove this struct otherwise generated c# wont compiler
                            structDatas.Remove(structName); // modifying the collection while iterating over. but it is not a problem since as long as i modify the collection i break out the loop and enter again
                            removed = true;
@@ -1399,7 +1438,7 @@ namespace Main {
                         }
                         type = RemoveStarsFromEnd(type);
 
-                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            unionDatas.Remove(unionName);
                            removed = true;
                            report.removedUnionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = unionName, unknownType = type });
@@ -1419,7 +1458,7 @@ namespace Main {
                      // return type
                      {
                         string returnType = RemoveStarsFromEnd(pointerData.returnType);
-                        if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                        if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionPointerDatas.Remove(functionPointerName);
                            removed = true;
                            report.removedDelegatesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionPointerName, unknownType = returnType });
@@ -1440,7 +1479,7 @@ namespace Main {
                            }
                            type = RemoveStarsFromEnd(type);
 
-                           if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                           if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                               functionPointerDatas.Remove(functionPointerName);
                               removed = true;
                               report.removedDelegatesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionPointerName, unknownType = type });
@@ -1451,6 +1490,20 @@ namespace Main {
                         if (removed) {
                            break;
                         }
+                     }
+                  } else if (elementType == UltimateListElementType.FixedBufferStruct) {
+                     KeyValuePair<string, FixedBufferStructData> kvp = (KeyValuePair<string, FixedBufferStructData>)obj;
+
+                     FixedBufferStructData data = kvp.Value;
+                     string fixedBufferStructName = kvp.Key;
+
+                     string type = RemoveStarsFromEnd(data.typeOfFixedBuffer);
+
+                     if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                        fixedBufferStructDatas.Remove(fixedBufferStructName);
+                        removed = true;
+                        report.removedFixedBufferStructsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = fixedBufferStructName, unknownType = type });
+                        break;
                      }
                   } else {
                      throw new UnreachableException();
@@ -1478,7 +1531,7 @@ namespace Main {
                   // return type
                   {
                      string returnType = RemoveStarsFromEnd(functionData.returnType);
-                     if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                     if (!DoesTypeExist(returnType, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                         functionDatas.Remove(functionName);
                         functionRemoved = true;
                         report.removedFunctionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionName, unknownType = returnType });
@@ -1499,7 +1552,7 @@ namespace Main {
                         }
                         type = RemoveStarsFromEnd(type);
 
-                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                        if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                            functionDatas.Remove(functionName);
                            functionRemoved = true;
                            report.removedFunctionsBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = functionName, unknownType = type });
@@ -1532,7 +1585,7 @@ namespace Main {
                   string name = kvp.Key;
 
                   string type = RemoveStarsFromEnd(data.type);
-                  if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
+                  if (!DoesTypeExist(type, structDatas, unionDatas, enumDatas, functionPointerDatas, fixedBufferStructDatas, opaqueStructs, opaqueUnions, opaqueEnums)) {
                      globalConstVariableDatas.Remove(name);
                      globalConstVariableRemoved = true;
                      report.removedGlobalConstVariablesBecauseTheyContainUnknownTypes.Add(new RemovedElementWithUnknownTypeData() { name = name, unknownType = type });
@@ -1634,6 +1687,18 @@ namespace Main {
             }
             File.Delete(cFilePath);
             File.Delete(executablePath);
+         }
+
+         // fixed buffer structs calculating the size of array
+         {
+            if (showProgress) {
+               Console.WriteLine("Calculating the size of fixed buffers with user defined types...");
+            }
+
+            foreach (FixedBufferStructData data in fixedBufferStructDatas.Values) {
+               string sizeString = MakeBetterSizeString(data.underlyingArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> sizeOfTypesThatCantBeResolved);
+               data.sizeOfFixedBuffer = await CSharpScript.EvaluateAsync<int>(sizeString);
+            }
          }
 
          if (showProgress) {
@@ -1967,8 +2032,43 @@ namespace Main {
                      if (TypeInfo.allowedFixedSizeBufferTypes.Contains(memberArray.type)) {
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
-                        report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Add(structData.name);
-                        // TODO: idk what to do
+                        throw new UnreachableException("if the type is not allowed then it is processed and converted to StructMember back in the processing section so every StructMemberArray here should have an allowed type");
+                        // NOTE: when it comes to fixed size buffers with user defined types you can use [MarshalAs(UnmanagedType.ByValArray, SizeConst = constant_value)] 
+                        //       but this wont work if you pass this struct to a unmanaged function via a pointer. you have to use the ref keyword. which may lead to confusion and hours of frustration and debugging when using such bindings.
+                        //
+                        //          struct MarshalThis {
+                        //             S s[4];
+                        //          };
+                        //          void WriteMarhsalThis(MarshalThis* mt);
+                        //
+                        //       if you marshal it like this:
+                        //
+                        //          public unsafe partial struct MarshalThis {
+                        //             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)] public S[] s;
+                        //          }
+                        //          [DllImport(LIBRARY_NAME, CallingConvention = CallingConvention.Cdecl, EntryPoint = "WriteMarhsalThis")]
+                        //          public static extern void WriteMarhsalThis(MarshalThis* mt);
+                        //
+                        //       the WriteMarhsalThis() function in c# cant modify the MarshalThis.s. i think that array is passed by value as the name suggest.
+                        //       but if you marhsal the function using the ref keyword everything works as expected
+                        //
+                        //          public static extern void WriteMarhsalThis(ref MarshalThis mt);
+                        //
+                        //       the better approach is what clangsharp does. it explicitly creates a struct corresponding to the array.
+                        //
+                        //          public partial struct MarshalThis {
+                        //             public _s_e__FixedBuffer s;
+                        //             public partial struct _s_e__FixedBuffer {
+                        //                public S e0;
+                        //                public S e1;
+                        //                public S e2;
+                        //                public S e3;
+                        //                public S e4;
+                        //             }
+                        //          }
+                        //
+                        //       this approach works fine both with pointer and ref keyword
+                        //       to be honest it is kinda shame that microsoft doesnt support fixed size buffers with user defined types
                      }
                   } else {
                      throw new UnreachableException();
@@ -2022,8 +2122,7 @@ namespace Main {
                         csOutput.AppendLine($"\t\t[FieldOffset(0)]");
                         csOutput.AppendLine($"\t\tpublic fixed {memberArray.type} {memberArray.name}[{memberArraySize}];");
                      } else {
-                        report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Add(unionData.name);
-                        // TODO: donk
+                        throw new UnreachableException("if the type is not allowed then it is processed and converted to StructMember back in the processing section so every StructMemberArray here should have an allowed type");
                      }
                   } else {
                      throw new UnreachableException();
@@ -2043,6 +2142,28 @@ namespace Main {
             csOutput.AppendLine($"\t// OPAQUE UNIONS");
             foreach (string opaqueUnion in opaqueUnions) {
                csOutput.AppendLine($"\tpublic partial struct {opaqueUnion} {{ }}");
+            }
+         }
+
+         // fixed buffer structs
+         {
+            if (showProgress) {
+               Console.WriteLine("\tFixed buffer structs...");
+            }
+
+            csOutput.AppendLine();
+            csOutput.AppendLine($"\t// FIXED BUFFER STRUCTS");
+            foreach (var kvp in fixedBufferStructDatas) {
+               string structName = kvp.Key;
+               FixedBufferStructData data = kvp.Value;
+
+               csOutput.AppendLine($"\tpublic unsafe partial struct {structName} {{");
+               for (int i = 0; i < data.sizeOfFixedBuffer; i++) {
+                  csOutput.AppendLine($"\t\tpublic {data.typeOfFixedBuffer} e{i};");
+               }
+               csOutput.AppendLine($"\t\tpublic ref {data.typeOfFixedBuffer} this[int index] => ref AsSpan()[index];");
+               csOutput.AppendLine($"\t\tpublic Span<{data.typeOfFixedBuffer}> AsSpan() => MemoryMarshal.CreateSpan(ref e0, {data.sizeOfFixedBuffer});");
+               csOutput.AppendLine("\t}");
             }
          }
 
@@ -2282,25 +2403,9 @@ namespace Main {
                }
             }
 
-            if (report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Count > 0) {
-               reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Incomplete structs because they contain an array with a type not allowed in fixed size buffers:");
-               foreach (string structName in report.incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers) {
-                  reportBuilder.AppendLine($"\t{structName}");
-               }
-            }
-
-            if (report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers.Count > 0) {
-               reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Incomplete unions because they contain an array with a type not allowed in fixed size buffers:");
-               foreach (string unionName in report.incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers) {
-                  reportBuilder.AppendLine($"\t{unionName}");
-               }
-            }
-
             if (report.externFunctions.Count > 0) {
                reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Functions declared as extern therefore not included in the csharp output:");
+               reportBuilder.AppendLine("Functions declared as extern therefore not included in the csharp output (if you want this functions to be processed use the flag include-extern-functions):");
                foreach (string externFunction in report.externFunctions) {
                   reportBuilder.AppendLine($"\t{externFunction}");
                }
@@ -2566,6 +2671,10 @@ namespace Main {
          } else {
             return $"{surroundingFunctionName}_{functionPointerName}_DELEGATE";
          }
+      }
+
+      static string GetStructNameOfFixedBufferUserDefinedType(string variableName, string surroundingStructName, string userDefinedType) {
+         return $"{surroundingStructName}_{variableName}_{userDefinedType}_FIXED_BUFFER";
       }
 
       /// <summary>
@@ -2919,6 +3028,7 @@ namespace Main {
                               Dictionary<string, StructData> unionDatas,
                               Dictionary<string, EnumData> enumDatas,
                               Dictionary<string, FunctionPointerData> functionPointerDatas,
+                              Dictionary<string, FixedBufferStructData> fixedBufferStructDatas,
                               HashSet<string> opaqueStructs,
                               HashSet<string> opaqueUnions,
                               HashSet<string> opaqueEnums) {
@@ -2926,6 +3036,7 @@ namespace Main {
                unionDatas.ContainsKey(type) ||
                enumDatas.ContainsKey(type) ||
                functionPointerDatas.ContainsKey(type) ||
+               fixedBufferStructDatas.ContainsKey(type) ||
                opaqueStructs.Contains(type) ||
                opaqueUnions.Contains(type) ||
                opaqueEnums.Contains(type) ||

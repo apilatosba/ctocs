@@ -3,5 +3,6 @@ namespace Main {
       Struct,
       Union,
       Delegate,
+      FixedBufferStruct,
    }
 }

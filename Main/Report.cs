@@ -12,10 +12,9 @@ namespace Main {
       public HashSet<RemovedElementWithUnknownTypeData> removedFunctionsBecauseTheyContainUnknownTypes;
       public HashSet<RemovedElementWithUnknownTypeData> removedDelegatesBecauseTheyContainUnknownTypes;
       public HashSet<RemovedElementWithUnknownTypeData> removedGlobalConstVariablesBecauseTheyContainUnknownTypes;
+      public HashSet<RemovedElementWithUnknownTypeData> removedFixedBufferStructsBecauseTheyContainUnknownTypes;
       public HashSet<string> functionPointersWithAmountOfStarsDifferentThanOne;
       public Dictionary<string /*name*/, string /*raw value*/> unableToParseDefines;
-      public HashSet<string> incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
-      public HashSet<string> incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers;
       public HashSet<string> externFunctions;
 
       public Report() {
@@ -29,10 +28,9 @@ namespace Main {
          removedFunctionsBecauseTheyContainUnknownTypes = new HashSet<RemovedElementWithUnknownTypeData>();
          removedDelegatesBecauseTheyContainUnknownTypes = new HashSet<RemovedElementWithUnknownTypeData>();
          removedGlobalConstVariablesBecauseTheyContainUnknownTypes = new HashSet<RemovedElementWithUnknownTypeData>();
+         removedFixedBufferStructsBecauseTheyContainUnknownTypes = new HashSet<RemovedElementWithUnknownTypeData>();
          functionPointersWithAmountOfStarsDifferentThanOne = new HashSet<string>();
          unableToParseDefines = new Dictionary<string, string>();
-         incompleteStructsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
-         incompleteUnionsBecauseTheyContainAnArrayWithATypeNotAllowedInFixedSizeBuffers = new HashSet<string>();
          externFunctions = new HashSet<string>();
       }
    }
