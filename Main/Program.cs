@@ -1613,6 +1613,7 @@ namespace Main {
          string outputDirectory = $"ctocs_{libName}";
          Directory.CreateDirectory(outputDirectory);
 
+         Dictionary<string, string> variablesWrittenToNativeClass = new Dictionary<string, string>();
          Dictionary<string /*name*/, int /*size*/> sizeofTypes = new Dictionary<string, int>();
          // sizeof types
          {
@@ -1689,18 +1690,6 @@ namespace Main {
             File.Delete(executablePath);
          }
 
-         // fixed buffer structs calculating the size of array
-         {
-            if (showProgress) {
-               Console.WriteLine("Calculating the size of fixed buffers with user defined types...");
-            }
-
-            foreach (FixedBufferStructData data in fixedBufferStructDatas.Values) {
-               string sizeString = MakeBetterSizeString(data.underlyingArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> sizeOfTypesThatCantBeResolved);
-               data.sizeOfFixedBuffer = await CSharpScript.EvaluateAsync<int>(sizeString);
-            }
-         }
-
          if (showProgress) {
             Console.WriteLine("Preparing C# output...");
          }
@@ -1727,7 +1716,7 @@ namespace Main {
 
                if (functionPointerData.amountOfStars == 1) {
                   csOutput.AppendLine("\t[UnmanagedFunctionPointer(CallingConvention.Cdecl)]");
-                  csOutput.AppendLine($"\tpublic unsafe delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? "/*, __arglist NOTE: arglist is not supported. you have to create a delegate for each different signature*/" : "")});");
+                  csOutput.AppendLine($"\tpublic unsafe delegate {functionPointerData.returnType} {functionPointerData.name}({functionArgs}{(functionPointerData.isVariadic ? " /*, __arglist NOTE: arglist is not supported. you have to create a delegate for each different signature*/" : "")});");
                } else {
                   // TODO: idk if above implementation would work for star amount other than 1. test it if it works then you can remove the if check.
                   //       maybe if it comes from a function parameter then i can declare the delegate as above and put the necessary stars in the function parameter. idk if it will work tho. need testing.
@@ -1753,24 +1742,31 @@ namespace Main {
                if (kvp.Value.StartsWith("0x") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out int hexValue)) { // you have remove the 0x in the beginning otherwise int.tryparse doesnt work
                   csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(uint));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (kvp.Value.StartsWith("0b") && int.TryParse(kvp.Value.AsSpan(2), NumberStyles.BinaryNumber, CultureInfo.InvariantCulture, out int binaryValue)) {
                   csOutput.AppendLine($"\t\tpublic const uint {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(uint));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (int.TryParse(kvp.Value, out int intValue)) {
                   csOutput.AppendLine($"\t\tpublic const int {kvp.Key} = {intValue};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(int));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (float.TryParse(kvp.Value, out float floatValue)) {
                   csOutput.AppendLine($"\t\tpublic const float {kvp.Key} = {floatValue}f;");
                   singleLineDefineTypes.Add(kvp.Key, typeof(float));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (double.TryParse(kvp.Value, out double doubleValue)) {
                   csOutput.AppendLine($"\t\tpublic const double {kvp.Key} = {doubleValue}d;");
                   singleLineDefineTypes.Add(kvp.Key, typeof(double));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (kvp.Value.StartsWith('"') && kvp.Value.EndsWith('"')) {
                   csOutput.AppendLine($"\t\tpublic const string {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(string));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else if (kvp.Value.StartsWith('\'') && kvp.Value.EndsWith('\'')) {
                   csOutput.AppendLine($"\t\tpublic const char {kvp.Key} = {kvp.Value};");
                   singleLineDefineTypes.Add(kvp.Key, typeof(char));
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else {
                   // lets check int float double considering suffixes
                   const int MAX_SUFFIX_LENGTH = 3;
@@ -1791,16 +1787,19 @@ namespace Main {
                      if (float.TryParse(suffixRemoved.ToString(), out float floatValue2)) {
                         csOutput.AppendLine($"\t\tpublic const float {kvp.Key} = {floatValue2}f;");
                         singleLineDefineTypes.Add(kvp.Key, typeof(float));
+                        variablesWrittenToNativeClass.TryAdd(kvp.Key, floatValue2.ToString());
                      }
                   } else if (suffix == "ll") {
                      if (long.TryParse(suffixRemoved.ToString(), out long longValue)) {
                         csOutput.AppendLine($"\t\tpublic const long {kvp.Key} = {longValue};");
                         singleLineDefineTypes.Add(kvp.Key, typeof(long));
+                        variablesWrittenToNativeClass.TryAdd(kvp.Key, longValue.ToString());
                      }
                   } else if (suffix == "ull" || suffix == "llu" || suffix == "ul" || suffix == "lu") {
                      if (ulong.TryParse(suffixRemoved.ToString(), out ulong ulongValue)) {
                         csOutput.AppendLine($"\t\tpublic const ulong {kvp.Key} = {ulongValue};");
                         singleLineDefineTypes.Add(kvp.Key, typeof(ulong));
+                        variablesWrittenToNativeClass.TryAdd(kvp.Key, ulongValue.ToString());
                      }
                   } else if (suffix == "l") {
                      // it could be anything. if it contains a dot then lets do double otherwise do long.
@@ -1808,11 +1807,13 @@ namespace Main {
                         if (double.TryParse(suffixRemoved.ToString(), out double doubleValue2)) {
                            csOutput.AppendLine($"\t\tpublic const double {kvp.Key} = {doubleValue2}d;");
                            singleLineDefineTypes.Add(kvp.Key, typeof(double));
+                           variablesWrittenToNativeClass.TryAdd(kvp.Key, doubleValue2.ToString());
                         }
                      } else {
                         if (long.TryParse(suffixRemoved.ToString(), out long longValue2)) {
                            csOutput.AppendLine($"\t\tpublic const long {kvp.Key} = {longValue2};");
                            singleLineDefineTypes.Add(kvp.Key, typeof(long));
+                           variablesWrittenToNativeClass.TryAdd(kvp.Key, longValue2.ToString());
                         }
                      }
                   } else {
@@ -1845,6 +1846,7 @@ namespace Main {
                }
                if (!anUnknownWordExists) {
                   csOutput.AppendLine($"\t\tpublic const {typeOfKnownWord.FullName} {kvp.Key} = {kvp.Value};"); // TODO: no unsafe?
+                  variablesWrittenToNativeClass.TryAdd(kvp.Key, kvp.Value);
                } else {
                   report.unableToParseDefines.TryAdd(kvp.Key, kvp.Value);
                }
@@ -1880,8 +1882,10 @@ namespace Main {
                if (data.arrayPart == null) {
                   if (data.value.StartsWith('{')) {
                      csOutput.AppendLine($"\t\tpublic unsafe static readonly {data.type} {data.name} = {value};");
+                     variablesWrittenToNativeClass.TryAdd(data.name, value);
                   } else {
                      csOutput.AppendLine($"\t\tpublic unsafe const {data.type} {data.name} = {data.value};"); // TODO: i think this is not gonna work if data.value is a string literal. need to check
+                     variablesWrittenToNativeClass.TryAdd(data.name, data.value);
                   }
                } else {
                   List<string> parts = ExtractOutArrayParts(data.arrayPart, openSquareBracketRegex); // this function is overkill here i only need the brace count. i use it because i write and then realized it isnt necessary and didnt want to let it stay unused
@@ -1894,6 +1898,7 @@ namespace Main {
                      brackets = bracketsBuilder.ToString();
                   }
                   csOutput.AppendLine($"\t\tpublic unsafe static readonly {data.type}{brackets} {data.name} = {value};");
+                  variablesWrittenToNativeClass.TryAdd(data.name, value);
                }
             }
          }
@@ -1914,6 +1919,7 @@ namespace Main {
                List<EnumMember> enumMembersWithExplicitValues = GetEnumMembersWithExplicitValues(enumData.members);
                foreach (EnumMember enumMember in enumMembersWithExplicitValues) {
                   csOutput.AppendLine($"\t\tpublic const int {enumMember.identifier} = {enumMember.value};");
+                  variablesWrittenToNativeClass.TryAdd(enumMember.identifier, enumMember.value);
                }
             }
          }
@@ -1929,6 +1935,27 @@ namespace Main {
             foreach (List<EnumMember> anonymousEnum in anonymousEnums) {
                foreach (EnumMember enumMember in anonymousEnum) {
                   csOutput.AppendLine($"\t\tpublic const int {enumMember.identifier} = {enumMember.value};");
+                  variablesWrittenToNativeClass.TryAdd(enumMember.identifier, enumMember.value);
+               }
+            }
+         }
+
+         // not writing but completing the fixed buffer struct info
+         {
+            // fixed buffer structs calculating the size of array
+            {
+               if (showProgress) {
+                  Console.WriteLine("Calculating the size of fixed buffers with user defined types...");
+               }
+
+               foreach (FixedBufferStructData data in fixedBufferStructDatas.Values) {
+                  string sizeString = MakeBetterSizeString(data.underlyingArray.size, typedefs, sizeofRegex, sizeofTypes, out HashSet<string> sizeOfTypesThatCantBeResolved);
+                  sizeString = ResolveEnumMembersOrDefineValuesInSizeString(sizeString, variablesWrittenToNativeClass, csharpIdentifierRegex, out bool failed);
+                  if (failed) {
+                     // TODO: write this to report
+                  } else {
+                     data.sizeOfFixedBuffer = await CSharpScript.EvaluateAsync<int>(sizeString);
+                  }
                }
             }
          }
@@ -2157,12 +2184,19 @@ namespace Main {
                string structName = kvp.Key;
                FixedBufferStructData data = kvp.Value;
 
+               Debug.Assert(data.sizeOfFixedBuffer > 0);
+
                csOutput.AppendLine($"\tpublic unsafe partial struct {structName} {{");
                for (int i = 0; i < data.sizeOfFixedBuffer; i++) {
                   csOutput.AppendLine($"\t\tpublic {data.typeOfFixedBuffer} e{i};");
                }
-               csOutput.AppendLine($"\t\tpublic ref {data.typeOfFixedBuffer} this[int index] => ref AsSpan()[index];");
-               csOutput.AppendLine($"\t\tpublic Span<{data.typeOfFixedBuffer}> AsSpan() => MemoryMarshal.CreateSpan(ref e0, {data.sizeOfFixedBuffer});");
+
+               if (IsPointer(data.typeOfFixedBuffer)) {
+                  csOutput.AppendLine($"\t\tpublic ref {data.typeOfFixedBuffer} this[int index] {{ get {{ fixed ({data.typeOfFixedBuffer}* ptr = &e0) {{ return ref ptr[index]; }} }} }}");
+               } else {
+                  csOutput.AppendLine($"\t\tpublic ref {data.typeOfFixedBuffer} this[int index] => ref AsSpan()[index];");
+                  csOutput.AppendLine($"\t\tpublic Span<{data.typeOfFixedBuffer}> AsSpan() => MemoryMarshal.CreateSpan(ref e0, {data.sizeOfFixedBuffer});");
+               }
                csOutput.AppendLine("\t}");
             }
          }
@@ -2674,7 +2708,7 @@ namespace Main {
       }
 
       static string GetStructNameOfFixedBufferUserDefinedType(string variableName, string surroundingStructName, string userDefinedType) {
-         return $"{surroundingStructName}_{variableName}_{userDefinedType}_FIXED_BUFFER";
+         return $"{surroundingStructName}_{variableName}_{Regex.Replace(RemoveStarsFromEnd(userDefinedType), @"\s+", "")}_FIXED_BUFFER"; // i do all this to userDefinedType because that type is not resolved at the time of this function call
       }
 
       /// <summary>
@@ -3150,6 +3184,43 @@ namespace Main {
          }
 
          return csharpIdentifierRegex.IsMatch(identifier) && !TypeInfo.csharpReservedKeywords.Contains(identifier);
+      }
+
+      static string ResolveEnumMembersOrDefineValuesInSizeString(in string size, Dictionary<string, string> variablesInNativeClass, Regex csharpIdentifierRegex, out bool unknownWordExists) {
+         string result = size;
+         Regex wordRegex = new Regex(@"\b\w+\b");
+         unknownWordExists = false;
+
+         for (; ; ) {
+            bool changed = false;
+            MatchCollection matchCollection = wordRegex.Matches(result);
+            if (matchCollection.Count == 0) {
+               break;
+            }
+
+            foreach (Match match in matchCollection) {
+               string word = match.Value;
+               if (!IsValidCSharpIdentifier(word, csharpIdentifierRegex)) {
+                  continue;
+               }
+
+               if (variablesInNativeClass.TryGetValue(word, out string value)) {
+                  result = result.Remove(match.Index, match.Length)
+                                 .Insert(match.Index, $"({value})");
+                  changed = true;
+                  break;
+               } else {
+                  unknownWordExists = true;
+                  return null;
+               }
+            }
+
+            if (!changed) {
+               break;
+            }
+         }
+
+         return result;
       }
    }
 }
