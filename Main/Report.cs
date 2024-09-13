@@ -4,6 +4,8 @@ namespace Main {
    public class Report {
       public List<UnresolvedSizeofTypeInAStructData> unresolvedSizeofTypeInStruct;
       public List<UnresolvedSizeofTypeInAGlobalConstVariableData> unresolvedSizeofTypesInGlobalConstVariable;
+      public HashSet<string> bitfieldsStructsAndUnionsTheyAreNotInteropFriendly;
+      public Dictionary<string /*struct or union name*/, IStructMember /*problamatic member*/> structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect;
       public HashSet<string> definesThatAreDefinedMoreThanOnce;
       public HashSet<string> typedefdFunctionsOrWronglyCapturedFunctionPointers;
       public HashSet<string> functionsThatExistInHeaderFileButNotExposedInSOFile;
@@ -20,6 +22,8 @@ namespace Main {
       public Report() {
          unresolvedSizeofTypeInStruct = new List<UnresolvedSizeofTypeInAStructData>();
          unresolvedSizeofTypesInGlobalConstVariable = new List<UnresolvedSizeofTypeInAGlobalConstVariableData>();
+         bitfieldsStructsAndUnionsTheyAreNotInteropFriendly = new HashSet<string>();
+         structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect = new Dictionary<string, IStructMember>();
          definesThatAreDefinedMoreThanOnce = new HashSet<string>();
          typedefdFunctionsOrWronglyCapturedFunctionPointers = new HashSet<string>();
          functionsThatExistInHeaderFileButNotExposedInSOFile = new HashSet<string>();

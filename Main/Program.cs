@@ -40,7 +40,6 @@ using System.Threading.Tasks;
 //       bools and strings. Marshal.PtrToStringUTF8
 //       create one to one constructor.
 //       following collections can be merged into a single collection: unionsThatArePresentInOriginalCCode, structsThatArePresentInOriginalCCode, shouldStructsOrUnionsInOriginalCCodeUseStructKeyword
-//       add bitfield structs to your report. bitfield structs compiles but they are not interop friendly.
 //       in the report "Defines that are unable to be parsed:" #define GLFW_KEY_LAST GLFW_KEY_MENU gets reported as unable parsed but it exist in csOutput as it should so report is wrong.
 //       __attribute__() remove this in preprocessed header files similar to gibberish lines you remove.
 //       you can have a define thats defined in terms of other defines plus enums and global const variables.
@@ -890,6 +889,10 @@ namespace Main {
                         type = RemoveModifiersFromType(type);
                         name = EnsureVariableIsNotAReservedKeyword(name);
 
+                        if (isBitfield) {
+                           report.bitfieldsStructsAndUnionsTheyAreNotInteropFriendly.Add(structOrUnionName);
+                        }
+
                         structOrUnionMembers.Add((new StructMember() {
                            name = name,
                            type = type,
@@ -911,10 +914,17 @@ namespace Main {
                            size = size
                         };
                         
-                        if (TypeInfo.allowedFixedSizeBufferTypes.Contains(type)) {
+                        if (TypeInfo.allowedFixedSizeBufferTypes.Contains(type)) { // TODO: using the type before resolving it. problem. unsigned char should be allowed but here it is not allowed. i have to resolve the type first then do this
                            structOrUnionMembers.Add((structMemberArray, structMemberArrayMatch.Index));
                         } else {
                            string fixedSizeBufferStructName = GetStructNameOfFixedBufferUserDefinedType(name, structOrUnionName, type); // FIXME: using the "type" before resolving it. it should be used after it is resolved. this causes the name of the struct to be different than it should be if the "type" resolves to a different type.
+                                                                                                                                        //        and it may create an uncompilable output. consider this situation thats probably never happened before
+                                                                                                                                        //
+                                                                                                                                        //            typedef unsigned char unsignedchar;
+                                                                                                                                        //            struct S {
+                                                                                                                                        //               unsigned char x;
+                                                                                                                                        //               unsignedchar x; /*look at the to the todo above*/
+                                                                                                                                        //            }; /*i left writing this fixme halfway through because this unsigned char situtaton should never happen because when it resolves it is allowed type*/
                            fixedBufferStructDatas.TryAdd(fixedSizeBufferStructName, new FixedBufferStructData() {
                               structName = fixedSizeBufferStructName,
                               typeOfFixedBuffer = type,
@@ -1355,6 +1365,54 @@ namespace Main {
                   foreach (StructMember structMember in structMembersToRemove) {
                      structData.fields.Remove(structMember);
                   }
+               }
+            }
+         }
+
+         // determining the structs and unions that are misaligned because they are affected by bitfield structs
+         {
+            if (showProgress) {
+               Console.WriteLine("Determining the structs and unions that are misaligned because they are affected by bitfield structs...");
+            }
+            
+            for (; ; ) {
+               bool addedStructToReport = false;
+               foreach (var collection in new Dictionary<string, StructData>.ValueCollection[] { structDatas.Values, unionDatas.Values }) {
+                  foreach (StructData structData in collection) {
+                     if (report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.ContainsKey(structData.name)) {
+                        continue;
+                     }
+
+                     foreach (IStructMember iStructMember in structData.fields) {
+                        if (iStructMember is StructMember structMember) {
+                           if (report.bitfieldsStructsAndUnionsTheyAreNotInteropFriendly.Contains(structMember.type) || report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.ContainsKey(structMember.type)) {
+                              report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.TryAdd(structData.name, structMember); // if a data added to the struct need to iterate all over again because this newly added struct might be present in the previous structs
+                              addedStructToReport = true;
+                              break;
+                           }
+                        } else if (iStructMember is StructMemberArray structMemberArray) {
+                           if (report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.ContainsKey(structMemberArray.type)) { // no bitfield check because arrays cant be bitfield
+                              report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.TryAdd(structData.name, structMemberArray);
+                              addedStructToReport = true;
+                              break;
+                           }
+                        } else {
+                           throw new UnreachableException();
+                        }
+                     }
+
+                     if (addedStructToReport) {
+                        break;
+                     }
+                  }
+
+                  if (addedStructToReport) {
+                     break;
+                  }
+               }
+
+               if (!addedStructToReport) {
+                  break;
                }
             }
          }
@@ -2336,7 +2394,7 @@ namespace Main {
 
             if (report.unresolvedSizeofTypeInStruct.Count > 0) {
                reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Unresolved sizeof types in structs/unions (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
+               reportBuilder.AppendLine("WARNING: Unresolved sizeof types in structs/unions (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
                foreach (UnresolvedSizeofTypeInAStructData data in report.unresolvedSizeofTypeInStruct) {
                   reportBuilder.AppendLine($"\tIn the struct/union {data.structNameWhichContainsTheSizeof}, the field {data.nameOfTheField} has a sizeof which contains the type {data.unresolvedType}");
                }
@@ -2344,9 +2402,35 @@ namespace Main {
 
             if (report.unresolvedSizeofTypesInGlobalConstVariable.Count > 0) {
                reportBuilder.AppendLine();
-               reportBuilder.AppendLine("Unresolved sizeof types in global const variables (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
+               reportBuilder.AppendLine("WARNING: Unresolved sizeof types in global const variables (WARNING: If you are seeing this it probably means that the csharp file doesnt compile):");
                foreach (UnresolvedSizeofTypeInAGlobalConstVariableData data in report.unresolvedSizeofTypesInGlobalConstVariable) {
                   reportBuilder.AppendLine($"\tIn the global const variable {data.nameOfTheVariable}, the value has a sizeof which contains the type {data.unresolvedType}");
+               }
+            }
+
+            if (report.bitfieldsStructsAndUnionsTheyAreNotInteropFriendly.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("WARNING: Structs or unions that are bitfields. WARNING: These structs/unions are not interop friendly");
+               foreach (string bitfieldStruct in report.bitfieldsStructsAndUnionsTheyAreNotInteropFriendly) {
+                  reportBuilder.AppendLine($"\t{bitfieldStruct}");
+               }
+            }
+
+            if (report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect.Count > 0) {
+               reportBuilder.AppendLine();
+               reportBuilder.AppendLine("WARNING: Structs or unions that contain member of type bitfield struct direct or indirect. WARNING: These structs/unions are not interop friendly");
+               foreach (var kvp in report.structsOrUnionsThatContainMemberOfTypeBitfieldStructDirectOrIndirect) {
+                  string structOrUnion = kvp.Key;
+                  string problematicMemberInfoMessage;
+                  if (kvp.Value is StructMember structMember) {
+                     problematicMemberInfoMessage = $"(problematic member) {structMember.name}, type: {structMember.type}";
+                  } else if (kvp.Value is StructMemberArray structMemberArray) {
+                     problematicMemberInfoMessage = $"(problematic member) {structMemberArray.name}, type: {structMemberArray.type}";
+                  } else {
+                     throw new UnreachableException();
+                  }
+
+                  reportBuilder.AppendLine($"\t{structOrUnion, -50}{problematicMemberInfoMessage}");
                }
             }
 
