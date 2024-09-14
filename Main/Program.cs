@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 // TODO: comments
+//       function pointers as struct members
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
@@ -44,12 +45,8 @@ using System.Threading.Tasks;
 //       __attribute__() remove this in preprocessed header files similar to gibberish lines you remove.
 //       you can have a define thats defined in terms of other defines plus enums and global const variables.
 //       if a function parameter or struct member is unknown type and is a pointer then you can use nint for it.
-//       cimgui is fucked up
-//          both in cimgui and stb_image.h no functions are written they are all reported under this "Functions that contain unknown types thus not included in the csharp output:". but types are known
 //       remove type/function specifiers/qualifiers/modifiers like static volatile register inline. they may exist almost anywhere so remove them when from the matched string directly.
-//       function pointers as struct members
 //       comma operator on global const variables
-//       ImVector_ImDrawListPtr cant make it to csharp output but it should
 //       in functions a parameter with single star pointer can be directly marshalled  using the ref keyword.
 //          BOOL PtInRect(const RECT *lprc, POINT pt); 
 //
@@ -2315,7 +2312,7 @@ namespace Main {
                   for (int i = 0; i < functionData.parameters.Count; i++) {
                      if (functionData.parameters[i] is FunctionParameterData) {
                         FunctionParameterData parameterData = functionData.parameters[i] as FunctionParameterData;
-                        if (parameterData.type.Count(c => c == '*') == 1 && IsBasicType(parameterData.type.Substring(0, parameterData.type.Length - 1))) {
+                        if (parameterData.type.Count(c => c == '*') == 1 && TypeInfo.csharpReservedKeywordsThatAreTypes.Contains(parameterData.type.Substring(0, parameterData.type.Length - 1))) {
                            newParameters.Add(new FunctionParameterData() {
                               type = $"{parameterData.type.Replace("*", "[]")}",
                               name = parameterData.name
@@ -2647,7 +2644,7 @@ namespace Main {
       // this function is used for 
       //   in Safe wrapper class if parameter is a pointer then it is converted to an array.
       //   but only if it is a basic type. int* -> int[]
-      // TODO: move this to TypeInfo. i think using TypeInfo.csharpReservedKeywordsThatAreTypes is fine
+      [Obsolete("use TypeInfo.csharpReservedKeywordsThatAreTypes instead")]
       static bool IsBasicType(string type) {
          return new string[] {
             "int", "uint", "long", "ulong", "short", "ushort", "char", "float", "double", "byte", "sbyte", "bool"
