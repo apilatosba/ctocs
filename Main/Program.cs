@@ -10,7 +10,15 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 // TODO: comments
-//       function pointers as struct members
+//       if type is "unsigned" literally then it should be converted to uint.
+//          struct S {
+//             unsigned x;
+//             unsigned int y;
+//          }
+//
+//          both of S.x and S.y should be uint
+//          TypeInfo.basicTypes maybe add a new entry { "unsigned", "uint" }?
+//       anonymous enums on global scope
 //       anonymous unions and anonymous structs access syntax.
 //       safe wrapper for pointer types
 //       if a type starts with __builtin_ then it means it is not defined by the user but it is handled by the compiler.
@@ -363,6 +371,7 @@ namespace Main {
             Regex anonymousEnumWithVariableDeclarationRegex = new Regex(@"(?<!typedef\s+)\benum\s*\{(?<members>.*?)\}\s*(?<variableName>\w+)\s*;", RegexOptions.Singleline); // do not match if starts with typedef
             // TODO: return type function pointer should be handled seperately.
             Regex typedefFunctionPointerRegex = new Regex(@"\btypedef\s+(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>\*[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*;");
+            Regex functionPointerRegex = new Regex(@"\b(?<returnType>\w+[\w\s]*?[*\s]+?)\s*\(\s*(?<stars>\*[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*\)\s*\((?<args>[\w,\s*()\[\]]*?)\s*(?<variadicPart>\.\.\.)?\s*\)\s*;");
             // apparently you can put the keywords in any order. const int. int const. const static int.
             // i only support the ones that start with const keyword and between const and type these words are okay (static|volatile|register).
             Regex constVariableRegex = new Regex(@"\bconst\s+(?:\s*(?:static|volatile|register)\s+)?(?<type>\w+[\w\s]*?[*\s]*?)\s*(?<name>\w+)(?:\s*(?<arrayPart>\[[\w\[\]\s+\-*/^%&()|~]*?\]))?\s*=\s*(?<value>.+?);", RegexOptions.Singleline); // value being .+? is no problem since the ending is semicolon and value cant contain semicolon
@@ -521,57 +530,6 @@ namespace Main {
                         name = functionName,
                         parameters = parameters,
                         isVariadic = isVariadic
-                     });
-                  }
-               }
-
-               // function pointers
-               {
-                  if (showProgress) {
-                     Console.WriteLine($"Processing function pointers [{path}]...");
-                  }
-
-                  MatchCollection matches = typedefFunctionPointerRegex.Matches(file);
-                  foreach (Match match in matches) {
-                     string returnType = match.Groups["returnType"].Value.Trim();
-                     string stars = match.Groups["stars"].Value.Trim();
-                     string name = match.Groups["name"].Value;
-                     Group arrayPart = match.Groups["arrayPart"];
-                     string functionArgs = match.Groups["args"].Value.Trim();
-                     Group variadicPart = match.Groups["variadicPart"];
-
-                     functionPointerFrontier.Enqueue((name, returnType, functionArgs, stars, arrayPart, variadicPart, null));
-                  }
-
-                  while (functionPointerFrontier.Count > 0) {
-                     (string name, string returnType, string functionArgs, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName) = functionPointerFrontier.Dequeue();
-
-                     // this is not necessary since functionArgFunctionPointerRegex doesnt match void
-                     if (functionArgs == "void") {
-                        functionArgs = "";
-                     } else {
-                        functionArgs += ',';
-                        functionArgs = RemoveModifiersFromType(functionArgs);
-                     }
-                     returnType = RemoveModifiersFromType(returnType);
-
-                     List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
-                        functionArgs,
-                        name,
-                        functionArgRegex,
-                        functionArgArrayRegex,
-                        functionArgFunctionPointerRegex,
-                        functionPointerFrontier,
-                        iota
-                     );
-
-                     functionPointerDatas.TryAdd(name, new FunctionPointerData() {
-                        returnType = returnType,
-                        amountOfStars = stars.Count(c => c == '*'),
-                        name = name,
-                        arrayPart = arrayPart.Success ? arrayPart.Value : null,
-                        isVariadic = variadicPart.Success,
-                        parameters = parameters
                      });
                   }
                }
@@ -877,6 +835,32 @@ namespace Main {
                         }
                      }
 
+                     // convert in place function pointer declarations
+                     {
+                        for (; ; ) {
+                           Match functionPointerMatch = functionPointerRegex.Match(fields);
+                           if (!functionPointerMatch.Success) {
+                              break;
+                           }
+
+                           string returnType = functionPointerMatch.Groups["returnType"].Value.Trim();
+                           string stars = functionPointerMatch.Groups["stars"].Value.Trim();
+                           string name = functionPointerMatch.Groups["name"].Value;
+                           Group arrayPart = functionPointerMatch.Groups["arrayPart"];
+                           string functionArgs = functionPointerMatch.Groups["args"].Value.Trim();
+                           Group variadicPart = functionPointerMatch.Groups["variadicPart"];
+
+                           string delegateName = GetDelegateNameOfFunctionPointerInStruct(name, structOrUnionName); // NOTE(apila, 15/02/25): this does work but doing it this way seems wrong. it feels like
+                                                                                                                    //     im not doing the same way that i did to others. seems like i invented a hack or something idk.
+                                                                                                                    //     also i noticed that i never use the functionPointerFrontier.surroundingFunctionName. i never read from it
+                                                                                                                    //     this seems wrong. i think i should be using it
+                           fields = fields.Remove(functionPointerMatch.Index, functionPointerMatch.Length)
+                                          .Insert(functionPointerMatch.Index, $"{delegateName} {name};");
+
+                           functionPointerFrontier.Enqueue((delegateName, returnType, functionArgs, stars, arrayPart, variadicPart, null));
+                        }
+                     }
+
                      List<(IStructMember member, int matchIndex)> structOrUnionMembers = new List<(IStructMember, int)>(); // matchIndex is used for sorting the members in the order they appear in the file
                      MatchCollection structMemberMatches = structMemberRegex.Matches(fields);
                      foreach (Match structMemberMatch in structMemberMatches) {
@@ -953,6 +937,67 @@ namespace Main {
                            });
                         } break;
                      }
+                  }
+               }
+
+               // comes after structs and unions because they may enqueue to functionPointerFrontier in case when they have a in place function pointer variable declaration
+               //    struct S {
+               //       void (*f)(int);
+               //    };
+               //
+               //    gets converted to
+               //    struct S {
+               //       delegate_name_here f;
+               //    };
+               //    function details sent to the frontier so a delegate can be created for it
+               // function pointers
+               {
+                  if (showProgress) {
+                     Console.WriteLine($"Processing function pointers [{path}]...");
+                  }
+
+                  MatchCollection matches = typedefFunctionPointerRegex.Matches(file);
+                  foreach (Match match in matches) {
+                     string returnType = match.Groups["returnType"].Value.Trim();
+                     string stars = match.Groups["stars"].Value.Trim();
+                     string name = match.Groups["name"].Value;
+                     Group arrayPart = match.Groups["arrayPart"];
+                     string functionArgs = match.Groups["args"].Value.Trim();
+                     Group variadicPart = match.Groups["variadicPart"];
+
+                     functionPointerFrontier.Enqueue((name, returnType, functionArgs, stars, arrayPart, variadicPart, null));
+                  }
+
+                  while (functionPointerFrontier.Count > 0) {
+                     (string name, string returnType, string functionArgs, string stars, Group arrayPart, Group variadicPart, string surroundingFunctionName) = functionPointerFrontier.Dequeue();
+
+                     // this is not necessary since functionArgFunctionPointerRegex doesnt match void
+                     if (functionArgs == "void") {
+                        functionArgs = "";
+                     } else {
+                        functionArgs += ',';
+                        functionArgs = RemoveModifiersFromType(functionArgs);
+                     }
+                     returnType = RemoveModifiersFromType(returnType);
+
+                     List<IFunctionParameterData> parameters = ExtractOutParameterDatasAndResolveFunctionPointers(
+                        functionArgs,
+                        name,
+                        functionArgRegex,
+                        functionArgArrayRegex,
+                        functionArgFunctionPointerRegex,
+                        functionPointerFrontier,
+                        iota
+                     );
+
+                     functionPointerDatas.TryAdd(name, new FunctionPointerData() {
+                        returnType = returnType,
+                        amountOfStars = stars.Count(c => c == '*'),
+                        name = name,
+                        arrayPart = arrayPart.Success ? arrayPart.Value : null,
+                        isVariadic = variadicPart.Success,
+                        parameters = parameters
+                     });
                   }
                }
 
@@ -2786,6 +2831,10 @@ namespace Main {
          } else {
             return $"{surroundingFunctionName}_{functionPointerName}_DELEGATE";
          }
+      }
+
+      static string GetDelegateNameOfFunctionPointerInStruct(string functionPointerVariableName, string surroundingStructName) {
+         return $"{surroundingStructName}_{functionPointerVariableName}_DELEGATE";
       }
 
       static string GetStructNameOfFixedBufferUserDefinedType(string variableName, string surroundingStructName, string userDefinedType) {
