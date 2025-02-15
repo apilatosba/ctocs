@@ -1,0 +1,47 @@
+Report of - ctocs sofile libGL.so.1.7.0 hfiles gl.h,, phfiles gl.i,,
+
+Defines that are defined more than once thus not included in the csharp output (probably because of ifdef guards):
+	GLAPI
+	GLAPIENTRY
+
+Typedefd functions or wrongly captured function pointers not considered as functions:
+	void
+	GLboolean
+	GLuint
+	GLint
+	GLenum
+	GLsync
+	GLuint64
+	GLhandleARB
+	GLbitfield
+	GLintptr
+	GLushort
+	GLVULKANPROCNV
+	GLfloat
+	GLvdpauSurfaceNV
+
+Functions that exists in the header files but not exposed in the .so file:
+	glBlendEquationSeparateATI
+
+Delegates that contain unknown types thus not included in the csharp output:
+	PFNGLFENCESYNCPROC,                               __GLsync (unknown type)
+	PFNGLISSYNCPROC,                                  __GLsync (unknown type)
+	PFNGLDELETESYNCPROC,                              __GLsync (unknown type)
+	PFNGLCLIENTWAITSYNCPROC,                          __GLsync (unknown type)
+	PFNGLWAITSYNCPROC,                                __GLsync (unknown type)
+	PFNGLGETSYNCIVPROC,                               __GLsync (unknown type)
+	PFNGLCREATESYNCFROMCLEVENTARBPROC,                __GLsync (unknown type)
+	PFNGLIMPORTSYNCEXTPROC,                           __GLsync (unknown type)
+
+Defines that are unable to be parsed:
+	APIENTRY
+	APIENTRYP
+	GLAPIENTRYP
+
+Values of the previous defines:
+	APIENTRY = GLAPIENTRY
+
+	APIENTRYP = APIENTRY *
+
+	GLAPIENTRYP = GLAPIENTRY *
+

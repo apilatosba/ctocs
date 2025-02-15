@@ -1,0 +1,799 @@
+Report of - ctocs sofile raylib-5.0_linux_amd64/lib/libraylib.so.5.0.0 hfiles raylib-5.0_linux_amd64/include/raylib.h raylib-5.0_linux_amd64/include/raymath.h raylib-5.0_linux_amd64/include/rlgl.h,, phfiles raylib-5.0_linux_amd64/include/raylib.i,,
+
+Defines that are defined more than once thus not included in the csharp output (probably because of ifdef guards):
+	RLAPI
+	RMAPI
+	PI
+	DEG2RAD
+	RAD2DEG
+	EPSILON
+	RL_DEFAULT_BATCH_BUFFER_ELEMENTS
+	RL_DEFAULT_BATCH_BUFFERS
+	RL_DEFAULT_BATCH_DRAWCALLS
+	RL_DEFAULT_BATCH_MAX_TEXTURE_UNITS
+	RL_MAX_MATRIX_STACK_SIZE
+	RL_MAX_SHADER_LOCATIONS
+	RL_CULL_DISTANCE_NEAR
+	RL_CULL_DISTANCE_FAR
+	RL_DEFAULT_SHADER_ATTRIB_NAME_POSITION
+	RL_DEFAULT_SHADER_ATTRIB_NAME_TEXCOORD
+	RL_DEFAULT_SHADER_ATTRIB_NAME_NORMAL
+	RL_DEFAULT_SHADER_ATTRIB_NAME_COLOR
+	RL_DEFAULT_SHADER_ATTRIB_NAME_TANGENT
+	RL_DEFAULT_SHADER_ATTRIB_NAME_TEXCOORD2
+	RL_DEFAULT_SHADER_UNIFORM_NAME_MVP
+	RL_DEFAULT_SHADER_UNIFORM_NAME_VIEW
+	RL_DEFAULT_SHADER_UNIFORM_NAME_PROJECTION
+	RL_DEFAULT_SHADER_UNIFORM_NAME_MODEL
+	RL_DEFAULT_SHADER_UNIFORM_NAME_NORMAL
+	RL_DEFAULT_SHADER_UNIFORM_NAME_COLOR
+	RL_DEFAULT_SHADER_SAMPLER2D_NAME_TEXTURE0
+	RL_DEFAULT_SHADER_SAMPLER2D_NAME_TEXTURE1
+	RL_DEFAULT_SHADER_SAMPLER2D_NAME_TEXTURE2
+	GL_MAX_TEXTURE_MAX_ANISOTROPY_EXT
+
+Typedefd functions or wrongly captured function pointers not considered as functions:
+	void
+	_Bool
+
+Defines that are unable to be parsed:
+	LIGHTGRAY
+	GRAY
+	DARKGRAY
+	YELLOW
+	GOLD
+	ORANGE
+	PINK
+	RED
+	MAROON
+	GREEN
+	LIME
+	DARKGREEN
+	SKYBLUE
+	BLUE
+	DARKBLUE
+	PURPLE
+	VIOLET
+	DARKPURPLE
+	BEIGE
+	BROWN
+	DARKBROWN
+	WHITE
+	BLACK
+	BLANK
+	MAGENTA
+	RAYWHITE
+	MOUSE_LEFT_BUTTON
+	MOUSE_RIGHT_BUTTON
+	MOUSE_MIDDLE_BUTTON
+	MATERIAL_MAP_DIFFUSE
+	MATERIAL_MAP_SPECULAR
+	SHADER_LOC_MAP_DIFFUSE
+	SHADER_LOC_MAP_SPECULAR
+	RL_TEXTURE_WRAP_S
+	RL_TEXTURE_WRAP_T
+	RL_TEXTURE_MAG_FILTER
+	RL_TEXTURE_MIN_FILTER
+	RL_TEXTURE_FILTER_NEAREST
+	RL_TEXTURE_FILTER_LINEAR
+	RL_TEXTURE_FILTER_MIP_NEAREST
+	RL_TEXTURE_FILTER_NEAREST_MIP_LINEAR
+	RL_TEXTURE_FILTER_LINEAR_MIP_NEAREST
+	RL_TEXTURE_FILTER_MIP_LINEAR
+	RL_TEXTURE_FILTER_ANISOTROPIC
+	RL_TEXTURE_MIPMAP_BIAS_RATIO
+	RL_TEXTURE_WRAP_REPEAT
+	RL_TEXTURE_WRAP_CLAMP
+	RL_TEXTURE_WRAP_MIRROR_REPEAT
+	RL_TEXTURE_WRAP_MIRROR_CLAMP
+	RL_MODELVIEW
+	RL_PROJECTION
+	RL_TEXTURE
+	RL_LINES
+	RL_TRIANGLES
+	RL_QUADS
+	RL_UNSIGNED_BYTE
+	RL_FLOAT
+	RL_STREAM_DRAW
+	RL_STREAM_READ
+	RL_STREAM_COPY
+	RL_STATIC_DRAW
+	RL_STATIC_READ
+	RL_STATIC_COPY
+	RL_DYNAMIC_DRAW
+	RL_DYNAMIC_READ
+	RL_DYNAMIC_COPY
+	RL_FRAGMENT_SHADER
+	RL_VERTEX_SHADER
+	RL_COMPUTE_SHADER
+	RL_ZERO
+	RL_ONE
+	RL_SRC_COLOR
+	RL_ONE_MINUS_SRC_COLOR
+	RL_SRC_ALPHA
+	RL_ONE_MINUS_SRC_ALPHA
+	RL_DST_ALPHA
+	RL_ONE_MINUS_DST_ALPHA
+	RL_DST_COLOR
+	RL_ONE_MINUS_DST_COLOR
+	RL_SRC_ALPHA_SATURATE
+	RL_CONSTANT_COLOR
+	RL_ONE_MINUS_CONSTANT_COLOR
+	RL_CONSTANT_ALPHA
+	RL_ONE_MINUS_CONSTANT_ALPHA
+	RL_FUNC_ADD
+	RL_MIN
+	RL_MAX
+	RL_FUNC_SUBTRACT
+	RL_FUNC_REVERSE_SUBTRACT
+	RL_BLEND_EQUATION
+	RL_BLEND_EQUATION_RGB
+	RL_BLEND_EQUATION_ALPHA
+	RL_BLEND_DST_RGB
+	RL_BLEND_SRC_RGB
+	RL_BLEND_DST_ALPHA
+	RL_BLEND_SRC_ALPHA
+	RL_BLEND_COLOR
+	RL_SHADER_LOC_MAP_DIFFUSE
+	RL_SHADER_LOC_MAP_SPECULAR
+	APIENTRY
+	WINGDIAPI
+	GLAD_MALLOC
+	GLAD_FREE
+	glClearDepth
+	GL_READ_FRAMEBUFFER
+	GL_DRAW_FRAMEBUFFER
+
+Values of the previous defines:
+	LIGHTGRAY = CLITERAL(Color){ 200, 200, 200, 255 }   // Light Gray
+
+	GRAY = CLITERAL(Color){ 130, 130, 130, 255 }   // Gray
+
+	DARKGRAY = CLITERAL(Color){ 80, 80, 80, 255 }      // Dark Gray
+
+	YELLOW = CLITERAL(Color){ 253, 249, 0, 255 }     // Yellow
+
+	GOLD = CLITERAL(Color){ 255, 203, 0, 255 }     // Gold
+
+	ORANGE = CLITERAL(Color){ 255, 161, 0, 255 }     // Orange
+
+	PINK = CLITERAL(Color){ 255, 109, 194, 255 }   // Pink
+
+	RED = CLITERAL(Color){ 230, 41, 55, 255 }     // Red
+
+	MAROON = CLITERAL(Color){ 190, 33, 55, 255 }     // Maroon
+
+	GREEN = CLITERAL(Color){ 0, 228, 48, 255 }      // Green
+
+	LIME = CLITERAL(Color){ 0, 158, 47, 255 }      // Lime
+
+	DARKGREEN = CLITERAL(Color){ 0, 117, 44, 255 }      // Dark Green
+
+	SKYBLUE = CLITERAL(Color){ 102, 191, 255, 255 }   // Sky Blue
+
+	BLUE = CLITERAL(Color){ 0, 121, 241, 255 }     // Blue
+
+	DARKBLUE = CLITERAL(Color){ 0, 82, 172, 255 }      // Dark Blue
+
+	PURPLE = CLITERAL(Color){ 200, 122, 255, 255 }   // Purple
+
+	VIOLET = CLITERAL(Color){ 135, 60, 190, 255 }    // Violet
+
+	DARKPURPLE = CLITERAL(Color){ 112, 31, 126, 255 }    // Dark Purple
+
+	BEIGE = CLITERAL(Color){ 211, 176, 131, 255 }   // Beige
+
+	BROWN = CLITERAL(Color){ 127, 106, 79, 255 }    // Brown
+
+	DARKBROWN = CLITERAL(Color){ 76, 63, 47, 255 }      // Dark Brown
+
+	WHITE = CLITERAL(Color){ 255, 255, 255, 255 }   // White
+
+	BLACK = CLITERAL(Color){ 0, 0, 0, 255 }         // Black
+
+	BLANK = CLITERAL(Color){ 0, 0, 0, 0 }           // Blank (Transparent)
+
+	MAGENTA = CLITERAL(Color){ 255, 0, 255, 255 }     // Magenta
+
+	RAYWHITE = CLITERAL(Color){ 245, 245, 245, 255 }   // My own White (raylib logo)
+
+	MOUSE_LEFT_BUTTON = MOUSE_BUTTON_LEFT
+
+	MOUSE_RIGHT_BUTTON = MOUSE_BUTTON_RIGHT
+
+	MOUSE_MIDDLE_BUTTON = MOUSE_BUTTON_MIDDLE
+
+	MATERIAL_MAP_DIFFUSE = MATERIAL_MAP_ALBEDO
+
+	MATERIAL_MAP_SPECULAR = MATERIAL_MAP_METALNESS
+
+	SHADER_LOC_MAP_DIFFUSE = SHADER_LOC_MAP_ALBEDO
+
+	SHADER_LOC_MAP_SPECULAR = SHADER_LOC_MAP_METALNESS
+
+	RL_TEXTURE_WRAP_S = 0x2802      // GL_TEXTURE_WRAP_S
+
+	RL_TEXTURE_WRAP_T = 0x2803      // GL_TEXTURE_WRAP_T
+
+	RL_TEXTURE_MAG_FILTER = 0x2800      // GL_TEXTURE_MAG_FILTER
+
+	RL_TEXTURE_MIN_FILTER = 0x2801      // GL_TEXTURE_MIN_FILTER
+
+	RL_TEXTURE_FILTER_NEAREST = 0x2600      // GL_NEAREST
+
+	RL_TEXTURE_FILTER_LINEAR = 0x2601      // GL_LINEAR
+
+	RL_TEXTURE_FILTER_MIP_NEAREST = 0x2700      // GL_NEAREST_MIPMAP_NEAREST
+
+	RL_TEXTURE_FILTER_NEAREST_MIP_LINEAR = 0x2702      // GL_NEAREST_MIPMAP_LINEAR
+
+	RL_TEXTURE_FILTER_LINEAR_MIP_NEAREST = 0x2701      // GL_LINEAR_MIPMAP_NEAREST
+
+	RL_TEXTURE_FILTER_MIP_LINEAR = 0x2703      // GL_LINEAR_MIPMAP_LINEAR
+
+	RL_TEXTURE_FILTER_ANISOTROPIC = 0x3000      // Anisotropic filter (custom identifier)
+
+	RL_TEXTURE_MIPMAP_BIAS_RATIO = 0x4000      // Texture mipmap bias, percentage ratio (custom identifier)
+
+	RL_TEXTURE_WRAP_REPEAT = 0x2901      // GL_REPEAT
+
+	RL_TEXTURE_WRAP_CLAMP = 0x812F      // GL_CLAMP_TO_EDGE
+
+	RL_TEXTURE_WRAP_MIRROR_REPEAT = 0x8370      // GL_MIRRORED_REPEAT
+
+	RL_TEXTURE_WRAP_MIRROR_CLAMP = 0x8742      // GL_MIRROR_CLAMP_EXT
+
+	RL_MODELVIEW = 0x1700      // GL_MODELVIEW
+
+	RL_PROJECTION = 0x1701      // GL_PROJECTION
+
+	RL_TEXTURE = 0x1702      // GL_TEXTURE
+
+	RL_LINES = 0x0001      // GL_LINES
+
+	RL_TRIANGLES = 0x0004      // GL_TRIANGLES
+
+	RL_QUADS = 0x0007      // GL_QUADS
+
+	RL_UNSIGNED_BYTE = 0x1401      // GL_UNSIGNED_BYTE
+
+	RL_FLOAT = 0x1406      // GL_FLOAT
+
+	RL_STREAM_DRAW = 0x88E0      // GL_STREAM_DRAW
+
+	RL_STREAM_READ = 0x88E1      // GL_STREAM_READ
+
+	RL_STREAM_COPY = 0x88E2      // GL_STREAM_COPY
+
+	RL_STATIC_DRAW = 0x88E4      // GL_STATIC_DRAW
+
+	RL_STATIC_READ = 0x88E5      // GL_STATIC_READ
+
+	RL_STATIC_COPY = 0x88E6      // GL_STATIC_COPY
+
+	RL_DYNAMIC_DRAW = 0x88E8      // GL_DYNAMIC_DRAW
+
+	RL_DYNAMIC_READ = 0x88E9      // GL_DYNAMIC_READ
+
+	RL_DYNAMIC_COPY = 0x88EA      // GL_DYNAMIC_COPY
+
+	RL_FRAGMENT_SHADER = 0x8B30      // GL_FRAGMENT_SHADER
+
+	RL_VERTEX_SHADER = 0x8B31      // GL_VERTEX_SHADER
+
+	RL_COMPUTE_SHADER = 0x91B9      // GL_COMPUTE_SHADER
+
+	RL_ZERO = 0           // GL_ZERO
+
+	RL_ONE = 1           // GL_ONE
+
+	RL_SRC_COLOR = 0x0300      // GL_SRC_COLOR
+
+	RL_ONE_MINUS_SRC_COLOR = 0x0301      // GL_ONE_MINUS_SRC_COLOR
+
+	RL_SRC_ALPHA = 0x0302      // GL_SRC_ALPHA
+
+	RL_ONE_MINUS_SRC_ALPHA = 0x0303      // GL_ONE_MINUS_SRC_ALPHA
+
+	RL_DST_ALPHA = 0x0304      // GL_DST_ALPHA
+
+	RL_ONE_MINUS_DST_ALPHA = 0x0305      // GL_ONE_MINUS_DST_ALPHA
+
+	RL_DST_COLOR = 0x0306      // GL_DST_COLOR
+
+	RL_ONE_MINUS_DST_COLOR = 0x0307      // GL_ONE_MINUS_DST_COLOR
+
+	RL_SRC_ALPHA_SATURATE = 0x0308      // GL_SRC_ALPHA_SATURATE
+
+	RL_CONSTANT_COLOR = 0x8001      // GL_CONSTANT_COLOR
+
+	RL_ONE_MINUS_CONSTANT_COLOR = 0x8002      // GL_ONE_MINUS_CONSTANT_COLOR
+
+	RL_CONSTANT_ALPHA = 0x8003      // GL_CONSTANT_ALPHA
+
+	RL_ONE_MINUS_CONSTANT_ALPHA = 0x8004      // GL_ONE_MINUS_CONSTANT_ALPHA
+
+	RL_FUNC_ADD = 0x8006      // GL_FUNC_ADD
+
+	RL_MIN = 0x8007      // GL_MIN
+
+	RL_MAX = 0x8008      // GL_MAX
+
+	RL_FUNC_SUBTRACT = 0x800A      // GL_FUNC_SUBTRACT
+
+	RL_FUNC_REVERSE_SUBTRACT = 0x800B      // GL_FUNC_REVERSE_SUBTRACT
+
+	RL_BLEND_EQUATION = 0x8009      // GL_BLEND_EQUATION
+
+	RL_BLEND_EQUATION_RGB = 0x8009      // GL_BLEND_EQUATION_RGB   // (Same as BLEND_EQUATION)
+
+	RL_BLEND_EQUATION_ALPHA = 0x883D      // GL_BLEND_EQUATION_ALPHA
+
+	RL_BLEND_DST_RGB = 0x80C8      // GL_BLEND_DST_RGB
+
+	RL_BLEND_SRC_RGB = 0x80C9      // GL_BLEND_SRC_RGB
+
+	RL_BLEND_DST_ALPHA = 0x80CA      // GL_BLEND_DST_ALPHA
+
+	RL_BLEND_SRC_ALPHA = 0x80CB      // GL_BLEND_SRC_ALPHA
+
+	RL_BLEND_COLOR = 0x8005      // GL_BLEND_COLOR
+
+	RL_SHADER_LOC_MAP_DIFFUSE = RL_SHADER_LOC_MAP_ALBEDO
+
+	RL_SHADER_LOC_MAP_SPECULAR = RL_SHADER_LOC_MAP_METALNESS
+
+	APIENTRY = __stdcall
+
+	WINGDIAPI = __declspec(dllimport)
+
+	GLAD_MALLOC = RL_MALLOC
+
+	GLAD_FREE = RL_FREE
+
+	glClearDepth = glClearDepthf
+
+	GL_READ_FRAMEBUFFER = GL_FRAMEBUFFER
+
+	GL_DRAW_FRAMEBUFFER = GL_FRAMEBUFFER
+
+
+Functions declared as extern therefore not included in the csharp output (if you want this functions to be processed use the flag include-extern-functions):
+	__fpclassify
+	__signbit
+	__isinf
+	__finite
+	__isnan
+	__iseqsig
+	__issignaling
+	acos
+	__acos
+	asin
+	__asin
+	atan
+	__atan
+	atan2
+	__atan2
+	cos
+	__cos
+	sin
+	__sin
+	tan
+	__tan
+	cosh
+	__cosh
+	sinh
+	__sinh
+	tanh
+	__tanh
+	acosh
+	__acosh
+	asinh
+	__asinh
+	atanh
+	__atanh
+	exp
+	__exp
+	frexp
+	__frexp
+	ldexp
+	__ldexp
+	log
+	__log
+	log10
+	__log10
+	modf
+	__modf
+	expm1
+	__expm1
+	log1p
+	__log1p
+	logb
+	__logb
+	exp2
+	__exp2
+	log2
+	__log2
+	pow
+	__pow
+	sqrt
+	__sqrt
+	hypot
+	__hypot
+	cbrt
+	__cbrt
+	ceil
+	__ceil
+	fabs
+	__fabs
+	floor
+	__floor
+	fmod
+	__fmod
+	isinf
+	finite
+	drem
+	__drem
+	significand
+	__significand
+	copysign
+	__copysign
+	nan
+	__nan
+	isnan
+	j0
+	__j0
+	j1
+	__j1
+	jn
+	__jn
+	y0
+	__y0
+	y1
+	__y1
+	yn
+	__yn
+	erf
+	__erf
+	erfc
+	__erfc
+	lgamma
+	__lgamma
+	tgamma
+	__tgamma
+	gamma
+	__gamma
+	lgamma_r
+	__lgamma_r
+	rint
+	__rint
+	nextafter
+	__nextafter
+	nexttoward
+	__nexttoward
+	remainder
+	__remainder
+	scalbn
+	__scalbn
+	ilogb
+	__ilogb
+	scalbln
+	__scalbln
+	nearbyint
+	__nearbyint
+	round
+	__round
+	trunc
+	__trunc
+	remquo
+	__remquo
+	lrint
+	__lrint
+	llrint
+	__llrint
+	lround
+	__lround
+	llround
+	__llround
+	fdim
+	__fdim
+	fmax
+	__fmax
+	fmin
+	__fmin
+	fma
+	__fma
+	scalb
+	__scalb
+	__fpclassifyf
+	__signbitf
+	__isinff
+	__finitef
+	__isnanf
+	__iseqsigf
+	__issignalingf
+	acosf
+	__acosf
+	asinf
+	__asinf
+	atanf
+	__atanf
+	atan2f
+	__atan2f
+	cosf
+	__cosf
+	sinf
+	__sinf
+	tanf
+	__tanf
+	coshf
+	__coshf
+	sinhf
+	__sinhf
+	tanhf
+	__tanhf
+	acoshf
+	__acoshf
+	asinhf
+	__asinhf
+	atanhf
+	__atanhf
+	expf
+	__expf
+	frexpf
+	__frexpf
+	ldexpf
+	__ldexpf
+	logf
+	__logf
+	log10f
+	__log10f
+	modff
+	__modff
+	expm1f
+	__expm1f
+	log1pf
+	__log1pf
+	logbf
+	__logbf
+	exp2f
+	__exp2f
+	log2f
+	__log2f
+	powf
+	__powf
+	sqrtf
+	__sqrtf
+	hypotf
+	__hypotf
+	cbrtf
+	__cbrtf
+	ceilf
+	__ceilf
+	fabsf
+	__fabsf
+	floorf
+	__floorf
+	fmodf
+	__fmodf
+	isinff
+	finitef
+	dremf
+	__dremf
+	significandf
+	__significandf
+	copysignf
+	__copysignf
+	nanf
+	__nanf
+	isnanf
+	j0f
+	__j0f
+	j1f
+	__j1f
+	jnf
+	__jnf
+	y0f
+	__y0f
+	y1f
+	__y1f
+	ynf
+	__ynf
+	erff
+	__erff
+	erfcf
+	__erfcf
+	lgammaf
+	__lgammaf
+	tgammaf
+	__tgammaf
+	gammaf
+	__gammaf
+	lgammaf_r
+	__lgammaf_r
+	rintf
+	__rintf
+	nextafterf
+	__nextafterf
+	nexttowardf
+	__nexttowardf
+	remainderf
+	__remainderf
+	scalbnf
+	__scalbnf
+	ilogbf
+	__ilogbf
+	scalblnf
+	__scalblnf
+	nearbyintf
+	__nearbyintf
+	roundf
+	__roundf
+	truncf
+	__truncf
+	remquof
+	__remquof
+	lrintf
+	__lrintf
+	llrintf
+	__llrintf
+	lroundf
+	__lroundf
+	llroundf
+	__llroundf
+	fdimf
+	__fdimf
+	fmaxf
+	__fmaxf
+	fminf
+	__fminf
+	fmaf
+	__fmaf
+	scalbf
+	__scalbf
+	__fpclassifyl
+	__signbitl
+	__isinfl
+	__finitel
+	__isnanl
+	__iseqsigl
+	__issignalingl
+	acosl
+	__acosl
+	asinl
+	__asinl
+	atanl
+	__atanl
+	atan2l
+	__atan2l
+	cosl
+	__cosl
+	sinl
+	__sinl
+	tanl
+	__tanl
+	coshl
+	__coshl
+	sinhl
+	__sinhl
+	tanhl
+	__tanhl
+	acoshl
+	__acoshl
+	asinhl
+	__asinhl
+	atanhl
+	__atanhl
+	expl
+	__expl
+	frexpl
+	__frexpl
+	ldexpl
+	__ldexpl
+	logl
+	__logl
+	log10l
+	__log10l
+	modfl
+	__modfl
+	expm1l
+	__expm1l
+	log1pl
+	__log1pl
+	logbl
+	__logbl
+	exp2l
+	__exp2l
+	log2l
+	__log2l
+	powl
+	__powl
+	sqrtl
+	__sqrtl
+	hypotl
+	__hypotl
+	cbrtl
+	__cbrtl
+	ceill
+	__ceill
+	fabsl
+	__fabsl
+	floorl
+	__floorl
+	fmodl
+	__fmodl
+	isinfl
+	finitel
+	dreml
+	__dreml
+	significandl
+	__significandl
+	copysignl
+	__copysignl
+	nanl
+	__nanl
+	isnanl
+	j0l
+	__j0l
+	j1l
+	__j1l
+	jnl
+	__jnl
+	y0l
+	__y0l
+	y1l
+	__y1l
+	ynl
+	__ynl
+	erfl
+	__erfl
+	erfcl
+	__erfcl
+	lgammal
+	__lgammal
+	tgammal
+	__tgammal
+	gammal
+	__gammal
+	lgammal_r
+	__lgammal_r
+	rintl
+	__rintl
+	nextafterl
+	__nextafterl
+	nexttowardl
+	__nexttowardl
+	remainderl
+	__remainderl
+	scalbnl
+	__scalbnl
+	ilogbl
+	__ilogbl
+	scalblnl
+	__scalblnl
+	nearbyintl
+	__nearbyintl
+	roundl
+	__roundl
+	truncl
+	__truncl
+	remquol
+	__remquol
+	lrintl
+	__lrintl
+	llrintl
+	__llrintl
+	lroundl
+	__lroundl
+	llroundl
+	__llroundl
+	fdiml
+	__fdiml
+	fmaxl
+	__fmaxl
+	fminl
+	__fminl
+	fmal
+	__fmal
+	scalbl
+	__scalbl

@@ -1,0 +1,177 @@
+Report of - ctocs sofile cimgui.so hfiles cimgui.h,, phfiles cimgui.i,,
+
+WARNING: Structs or unions that are bitfields. WARNING: These structs/unions are not interop friendly
+	ImFontGlyph
+	ImGuiBoxSelectState
+	ImGuiDockNode
+	ImGuiStackLevelInfo
+	ImGuiContext
+	ImGuiWindow
+	ImGuiTableColumn
+	ImGuiTable
+	ImGuiTableColumnSettings
+
+WARNING: Structs or unions that contain member of type bitfield struct direct or indirect. WARNING: These structs/unions are not interop friendly
+	ImGuiContext                                      (problematic member) BoxSelectState, type: ImGuiBoxSelectState
+
+Defines that are defined more than once thus not included in the csharp output (probably because of ifdef guards):
+	API
+	EXTERN
+
+Typedefd functions or wrongly captured function pointers not considered as functions:
+	int
+	void
+
+Functions that exists in the header files but not exposed in the .so file:
+	igGetID_Int
+	igTextLink
+	igTextLinkOpenURL
+	igSetNextItemStorageID
+	igBeginMultiSelect
+	igEndMultiSelect
+	igGetBackgroundDrawList
+	igShortcut_Nil
+	igSetItemKeyOwner_Nil
+	ImGuiIO_ClearInputMouse
+	ImGuiListClipper_SeekCursorForItem
+	ImGuiSelectionBasicStorage_ImGuiSelectionBasicStorage
+	ImGuiSelectionBasicStorage_destroy
+	ImGuiSelectionBasicStorage_ApplyRequests
+	ImGuiSelectionBasicStorage_Contains
+	ImGuiSelectionBasicStorage_Clear
+	ImGuiSelectionBasicStorage_Swap
+	ImGuiSelectionBasicStorage_SetItemSelected
+	ImGuiSelectionBasicStorage_GetNextSelectedItem
+	ImGuiSelectionBasicStorage_GetStorageIdFromIndex
+	ImGuiSelectionExternalStorage_ImGuiSelectionExternalStorage
+	ImGuiSelectionExternalStorage_destroy
+	ImGuiSelectionExternalStorage_ApplyRequests
+	igImCharIsXdigitA
+	igImLinearRemapClamp
+	igImLowerBound
+	ImGuiBoxSelectState_ImGuiBoxSelectState
+	ImGuiBoxSelectState_destroy
+	ImGuiMultiSelectTempData_ImGuiMultiSelectTempData
+	ImGuiMultiSelectTempData_destroy
+	ImGuiMultiSelectTempData_Clear
+	ImGuiMultiSelectTempData_ClearIO
+	ImGuiMultiSelectState_ImGuiMultiSelectState
+	ImGuiMultiSelectState_destroy
+	igWindowPosAbsToRel
+	igFindHoveredWindowEx
+	igBeginDisabledOverrideReenable
+	igEndDisabledOverrideReenable
+	igIsNamedKeyOrMod
+	igSetItemKeyOwner_InputFlags
+	igIsKeyPressed_InputFlags
+	igIsKeyChordPressed_InputFlags
+	igIsMouseClicked_InputFlags
+	igShortcut_ID
+	igBeginBoxSelect
+	igEndBoxSelect
+	igMultiSelectItemHeader
+	igMultiSelectItemFooter
+	igMultiSelectAddSetAll
+	igMultiSelectAddSetRange
+	igGetBoxSelectState
+	igGetMultiSelectState
+	igTreeNodeGetOpen
+	igSetNextItemRefVal
+	igDebugTextUnformattedWithLocateItem
+	igDebugNodeMultiSelectState
+	igDebugNodePlatformMonitor
+
+Defines that are unable to be parsed:
+	CIMGUI_API
+	CONST
+	ImDrawCallback_ResetRenderState
+
+Values of the previous defines:
+	CIMGUI_API = EXTERN API
+
+	CONST = const
+
+	ImDrawCallback_ResetRenderState = (ImDrawCallback)(-8)
+
+
+Functions declared as extern therefore not included in the csharp output (if you want this functions to be processed use the flag include-extern-functions):
+	remove
+	rename
+	renameat
+	fclose
+	tmpfile
+	tmpnam
+	tmpnam_r
+	tempnam
+	fflush
+	fflush_unlocked
+	fopen
+	freopen
+	fdopen
+	fmemopen
+	open_memstream
+	setbuf
+	setvbuf
+	setbuffer
+	setlinebuf
+	fprintf
+	printf
+	vfprintf
+	vprintf
+	vsprintf
+	vsnprintf
+	vdprintf
+	fscanf
+	scanf
+	vfscanf
+	vscanf
+	vsscanf
+	fgetc
+	getc
+	getchar
+	getc_unlocked
+	getchar_unlocked
+	fgetc_unlocked
+	fputc
+	putc
+	putchar
+	fputc_unlocked
+	putc_unlocked
+	putchar_unlocked
+	getw
+	putw
+	fgets
+	__getdelim
+	getdelim
+	getline
+	fputs
+	puts
+	ungetc
+	fread
+	fwrite
+	fread_unlocked
+	fwrite_unlocked
+	fseek
+	ftell
+	rewind
+	fseeko
+	ftello
+	fgetpos
+	fsetpos
+	clearerr
+	feof
+	ferror
+	clearerr_unlocked
+	feof_unlocked
+	ferror_unlocked
+	perror
+	fileno
+	fileno_unlocked
+	pclose
+	popen
+	ctermid
+	flockfile
+	ftrylockfile
+	funlockfile
+	__uflow
+	__overflow

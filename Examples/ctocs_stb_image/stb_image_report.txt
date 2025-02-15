@@ -1,0 +1,233 @@
+Report of - ctocs include-extern-functions sofile stb_image.so hfiles stb_image.h,, phfiles stb_image.i,,
+
+Defines that are defined more than once thus not included in the csharp output (probably because of ifdef guards):
+	STBIDEF
+	STBI_EXTERN
+	stbi_inline
+	STBI_THREAD_LOCAL
+	STBI_MAX_DIMENSIONS
+	stbi__vertically_flip_on_load
+	stbi__unpremultiply_on_load
+	stbi__de_iphone_flag
+
+Typedefd functions or wrongly captured function pointers not considered as functions:
+	__attribute__
+	int
+
+Functions that exists in the header files but not exposed in the .so file:
+	remove
+	rename
+	renameat
+	fclose
+	tmpfile
+	tmpnam
+	tmpnam_r
+	tempnam
+	fflush
+	fflush_unlocked
+	fopen
+	freopen
+	fdopen
+	fmemopen
+	open_memstream
+	setbuf
+	setvbuf
+	setbuffer
+	setlinebuf
+	fprintf
+	printf
+	vfprintf
+	vprintf
+	vsprintf
+	vsnprintf
+	vdprintf
+	fscanf
+	scanf
+	vfscanf
+	vscanf
+	vsscanf
+	fgetc
+	getc
+	getchar
+	getc_unlocked
+	getchar_unlocked
+	fgetc_unlocked
+	fputc
+	putc
+	putchar
+	fputc_unlocked
+	putc_unlocked
+	putchar_unlocked
+	getw
+	putw
+	fgets
+	__getdelim
+	getdelim
+	getline
+	fputs
+	puts
+	ungetc
+	fread
+	fwrite
+	fread_unlocked
+	fwrite_unlocked
+	fseek
+	ftell
+	rewind
+	fseeko
+	ftello
+	fgetpos
+	fsetpos
+	clearerr
+	feof
+	ferror
+	clearerr_unlocked
+	feof_unlocked
+	ferror_unlocked
+	perror
+	fileno
+	fileno_unlocked
+	pclose
+	popen
+	ctermid
+	flockfile
+	ftrylockfile
+	funlockfile
+	__uflow
+	__overflow
+	__ctype_get_mb_cur_max
+	atof
+	atoi
+	atol
+	atoll
+	strtod
+	strtof
+	strtold
+	strtol
+	strtoul
+	strtoq
+	strtouq
+	strtoll
+	strtoull
+	l64a
+	a64l
+	__bswap_16
+	__bswap_32
+	__bswap_64
+	__uint16_identity
+	__uint32_identity
+	__uint64_identity
+	select
+	pselect
+	random
+	srandom
+	initstate
+	setstate
+	random_r
+	srandom_r
+	initstate_r
+	setstate_r
+	rand
+	srand
+	rand_r
+	drand48
+	erand48
+	lrand48
+	nrand48
+	mrand48
+	jrand48
+	srand48
+	seed48
+	lcong48
+	drand48_r
+	erand48_r
+	lrand48_r
+	nrand48_r
+	mrand48_r
+	jrand48_r
+	srand48_r
+	seed48_r
+	lcong48_r
+	arc4random
+	arc4random_buf
+	arc4random_uniform
+	malloc
+	calloc
+	realloc
+	free
+	reallocarray
+	alloca
+	valloc
+	posix_memalign
+	aligned_alloc
+	abort
+	atexit
+	at_quick_exit
+	on_exit
+	exit
+	quick_exit
+	_Exit
+	getenv
+	putenv
+	setenv
+	unsetenv
+	clearenv
+	mktemp
+	mkstemp
+	mkstemps
+	mkdtemp
+	system
+	realpath
+	bsearch
+	qsort
+	abs
+	labs
+	llabs
+	div
+	ldiv
+	lldiv
+	ecvt
+	fcvt
+	gcvt
+	qecvt
+	qfcvt
+	qgcvt
+	ecvt_r
+	fcvt_r
+	qecvt_r
+	qfcvt_r
+	mblen
+	mbtowc
+	wctomb
+	mbstowcs
+	wcstombs
+	rpmatch
+	getsubopt
+	getloadavg
+
+Structs that contain unknown types thus not included in the csharp output:
+	drand48_data,                                     __extension__ unsigned long long int (unknown type)
+	__pthread_cond_s,                                 __atomic_wide_counter (unknown type)
+
+Unions that contain unknown types thus not included in the csharp output:
+	__atomic_wide_counter,                            __extension__ unsigned long long int (unknown type)
+	pthread_cond_t,                                   __pthread_cond_s (unknown type)
+
+Defines that are unable to be parsed:
+	FAST_BITS
+	STBI__ZFAST_BITS
+	STBI__ZFAST_MASK
+	STBI__ZNSYMS
+	STBI_HEADER_FILE_ONLY
+
+Values of the previous defines:
+	FAST_BITS = 9  // larger handles more cases; smaller stomps less cache
+
+	STBI__ZFAST_BITS = 9 // accelerate all cases in default tables
+
+	STBI__ZFAST_MASK = ((1 << STBI__ZFAST_BITS) - 1)
+
+	STBI__ZNSYMS = 288 // number of symbols in literal/length alphabet
+
+	STBI_HEADER_FILE_ONLY = before including)
+

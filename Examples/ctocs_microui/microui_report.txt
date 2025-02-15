@@ -1,0 +1,11 @@
+Report of - ctocs sofile libmicroui.so hfiles microui.h,, phfiles microui.i,,
+
+Defines that are unable to be parsed:
+	MU_COMMANDLIST_SIZE
+	MU_REAL
+
+Values of the previous defines:
+	MU_COMMANDLIST_SIZE = (256 * 1024)
+
+	MU_REAL = float
+
